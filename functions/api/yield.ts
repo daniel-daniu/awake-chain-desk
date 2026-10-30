@@ -33,7 +33,7 @@ const call = (to: string, data: string, tag = 'latest') => ({ method: 'eth_call'
 const same = (a: string | null, b: string) => Boolean(a && a.toLowerCase().endsWith(b.slice(2).toLowerCase()))
 const pct = (a: number, b: number) => (b ? a / b - 1 : 0)
 
-async function chunked(url: string, calls: any[], size = 4) {
+async function chunked(url: string, calls: any[], size = 16) {
   const out: any[] = []
   for (let i = 0; i < calls.length; i += size) {
     const part = await rpcBatch(url, calls.slice(i, i + size)).catch(() => [])
