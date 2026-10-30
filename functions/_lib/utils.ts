@@ -131,15 +131,26 @@ export async function fetchText(url: string, timeout = 8000): Promise<string> {
   }
 }
 
-export async function rpcBatch(url: string, calls: { method: string; params: unknown[] }[]) {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'user-agent': 'Mozilla/5.0 (compatible; AwakeChainDesk/1.0)' },
-    body: JSON.stringify(calls.map((c, i) => ({ jsonrpc: '2.0', id: i + 1, ...c }))),
-  })
-  if (!res.ok) throw new Error(`rpc ${res.status}`)
-  const arr = (await res.json()) as { id: number; result?: any; error?: unknown }[]
-  return calls.map((_, i) => arr.find((x) => x.id === i + 1)?.result ?? null)
+export async function rpcBatch(
+  url: string,
+  calls: { method: string; params: unknown[] }[],
+  timeout = 12000,
+) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeout)
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'user-agent': 'Mozilla/5.0 (compatible; AwakeChainDesk/1.0)' },
+      body: JSON.stringify(calls.map((c, i) => ({ jsonrpc: '2.0', id: i + 1, ...c }))),
+      signal: ctrl.signal,
+    })
+    if (!res.ok) throw new Error(`rpc ${res.status}`)
+    const arr = (await res.json()) as { id: number; result?: any; error?: unknown }[]
+    return calls.map((_, i) => arr.find((x) => x.id === i + 1)?.result ?? null)
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export const word = (hex: string | null, index: number) =>
