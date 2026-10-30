@@ -244,6 +244,8 @@ export const en: Record<string, string> = {
   'about.limits': 'Limits',
   'about.limitsDesc':
     'When core contracts are unverified, positions, claimable amounts and bond discounts cannot be read. The UI shows "not readable" instead of estimates. Divergent pool quotes are shown side by side.',
+  'about.contact': 'Contact',
+  'about.contactDesc': 'Corrections, source suggestions, collaboration or republishing — email is the fastest way. Replies usually within one working day.',
   'about.disclaimer': 'Disclaimer',
   'about.disclaimerText':
     'This site only organizes public data and explains mechanics. It is not investment, legal or tax advice, and does not provide trading, custody, swap or token issuance services. Crypto assets are highly volatile; some projects carry contract, liquidity and counterparty risks that can result in total loss. Verify everything yourself and own your decisions.',

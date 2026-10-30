@@ -1,11 +1,18 @@
+import { useEffect, useState } from 'react'
 import { useI18n } from '../i18n'
 import { ANUBIS, POLYGON } from '../config/chain'
 import { CONTRACTS, addressUrl, tokenUrl } from '../config/contracts'
 import { ExternalLink, Pill, SectionHeader } from '../components/ui'
-import { IconAlert, IconClock, IconGlobe, IconInfo, IconShield } from '../components/Icons'
+import { IconAlert, IconClock, IconGlobe, IconInfo, IconMail, IconShield } from '../components/Icons'
 
 export default function About() {
   const { t, lang } = useI18n()
+
+  // 邮箱在挂载后再拼装，源码与 HTML 里都不出现完整地址，减少被爬虫直接抓走
+  const [mail, setMail] = useState('')
+  useEffect(() => {
+    setMail(['hello', 'danieln.top'].join(String.fromCharCode(64)))
+  }, [])
 
   const sources = [
     { name: 'Anubis Blockscout API', url: `${ANUBIS.explorer}/api-docs`, desc: 'chain stats / tokens / holders / blocks' },
@@ -113,6 +120,31 @@ export default function About() {
               {x}
             </span>
           ))}
+        </div>
+      </section>
+
+      <section className="mt-8 card card-pad">
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accentsoft text-accent">
+            <IconMail size={17} />
+          </span>
+          <div>
+            <div className="text-[13px] font-semibold text-ink">{t('about.contact')}</div>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted">{t('about.contactDesc')}</p>
+          </div>
+        </div>
+        <div className="mt-3">
+          {mail ? (
+            <a
+              href={`mailto:${mail}`}
+              className="mono inline-flex items-center gap-1.5 rounded-lg border border-line bg-white px-3 py-2 text-[13px] font-medium text-accent transition hover:border-accent/40 hover:bg-accentsoft"
+            >
+              <IconMail size={14} />
+              {mail}
+            </a>
+          ) : (
+            <span className="mono text-[13px] text-muted">…</span>
+          )}
         </div>
       </section>
     </div>

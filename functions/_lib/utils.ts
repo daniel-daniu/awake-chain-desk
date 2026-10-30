@@ -84,7 +84,8 @@ export async function cached(
       if (ctx?.waitUntil) ctx.waitUntil(job)
       else void job
       const headers = new Headers(hit.headers)
-      const remaining = Math.max(0, Math.round(ttl - age))
+      // 过期窗口内至少让边缘缓存 30 秒，避免每个请求都回源到函数
+      const remaining = Math.max(30, Math.round(ttl - age))
       headers.set('cache-control', `public, s-maxage=${remaining}, stale-while-revalidate=0`)
       return new Response(await hit.text(), { status: hit.status, headers })
     }

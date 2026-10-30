@@ -162,6 +162,13 @@ export const IconGlobe = (p: IconProps) => (
   </svg>
 )
 
+export const IconMail = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="3" y="5" width="18" height="14" rx="2.5" />
+    <path d="m3.5 7 8.5 6 8.5-6" />
+  </svg>
+)
+
 export const LogoMark = ({ size = 34 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
     <rect width="64" height="64" rx="15" fill="#0B6E75" />
