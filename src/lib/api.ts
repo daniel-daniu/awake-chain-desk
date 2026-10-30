@@ -67,6 +67,19 @@ async function load<T>(
   }
 }
 
+async function fetchApi<T>(path: string, timeout = 20_000): Promise<T> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeout)
+  try {
+    const res = await fetch(`/api${path}`, { headers: { accept: 'application/json' }, signal: ctrl.signal })
+    const json = await res.json()
+    if (!json?.data) throw new Error(`${path} unavailable`)
+    return json.data as T
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export const usePrice = () =>
   useQuery({
     queryKey: ['price'],
@@ -94,27 +107,19 @@ export const useStats = () =>
 export const useEcosystem = () =>
   useQuery({
     queryKey: ['ecosystem'],
-    queryFn: async (): Promise<EcosystemData> => {
-      const res = await fetch('/api/ecosystem', { headers: { accept: 'application/json' } })
-      const json = await res.json()
-      if (!json?.data) throw new Error('ecosystem unavailable')
-      return json.data as EcosystemData
-    },
+    queryFn: () => fetchApi<EcosystemData>('/ecosystem'),
     refetchInterval: 600_000,
     staleTime: 480_000,
+    retry: 1,
   })
 
 export const useYield = () =>
   useQuery({
     queryKey: ['yield'],
-    queryFn: async (): Promise<YieldData> => {
-      const res = await fetch('/api/yield', { headers: { accept: 'application/json' } })
-      const json = await res.json()
-      if (!json?.data) throw new Error('yield unavailable')
-      return json.data as YieldData
-    },
+    queryFn: () => fetchApi<YieldData>('/yield'),
     refetchInterval: 600_000,
     staleTime: 480_000,
+    retry: 1,
   })
 
 export const useFlow = () =>
