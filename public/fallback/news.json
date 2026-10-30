@@ -1,0 +1,94 @@
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "onchain-spread-20261030",
+        "title": {
+          "zh": "链上对账：Anubis 与 Polygon 的 LGNS 价差约 4.2 倍",
+          "en": "On-chain check: LGNS trades ~4.2x higher on Polygon than on Anubis"
+        },
+        "summary": {
+          "zh": "Anubis 主池按 DAI 储备反推约 $0.048，Polygon QuickSwap 主池约 $0.203。两条链使用不同合约，价差反映流动性与兑付通道差异，不代表可以无风险套利。",
+          "en": "The Anubis pool implies about $0.048 from DAI reserves, while the Polygon QuickSwap pool quotes about $0.203. The tokens are different contracts; the gap reflects liquidity and redemption differences, not risk-free arbitrage."
+        },
+        "source": "本站链上读取",
+        "url": "/zh/chain",
+        "publishedAt": "2026-10-30T00:30:00.000Z",
+        "tag": "onchain",
+        "lang": "zh"
+      },
+      {
+        "id": "onchain-interest-20261030",
+        "title": {
+          "zh": "链上抽样：claimInterest 领取笔数与单笔金额",
+          "en": "On-chain sample: claimInterest claim count and individual amounts"
+        },
+        "summary": {
+          "zh": "最近质押合约转出记录中约四成为 claimInterest。单笔金额受大额领取影响，样本窗口很短，只呈现样本事实，不做全天或年化外推。",
+          "en": "About 40% of recent outgoing transfers from the staking contract were claimInterest. Amounts are skewed by large claims and the sample window is short, so no full-day or annualized estimate is made."
+        },
+        "source": "本站链上读取",
+        "url": "/zh/chain",
+        "publishedAt": "2026-10-30T00:20:00.000Z",
+        "tag": "onchain",
+        "lang": "zh"
+      },
+      {
+        "id": "onchain-concentration-20261030",
+        "title": {
+          "zh": "链上持仓：第一大地址控制约 79% 供应，且为可升级代理",
+          "en": "On-chain holdings: top address controls ~79% of supply and is an upgradeable proxy"
+        },
+        "summary": {
+          "zh": "该地址是 EIP-1967 代理、未开源，持有约 39 亿 LGNS。剔除合约地址后，最大个人地址占比约 3.2%。",
+          "en": "The address is an unverified EIP-1967 proxy holding about 3.9B LGNS. Excluding contracts, the largest individual address holds about 3.2%."
+        },
+        "source": "本站链上读取",
+        "url": "/zh/chain",
+        "publishedAt": "2026-10-30T00:10:00.000Z",
+        "tag": "onchain",
+        "lang": "zh"
+      },
+      {
+        "id": "media-risk-20261023",
+        "title": {
+          "zh": "媒体质疑：LGNS 价格大幅下跌，Anubis 被指为团队自建链",
+          "en": "Media scepticism: LGNS price slump, Anubis called a team-built chain"
+        },
+        "summary": {
+          "zh": "文章称 LGNS 合约可联动外部合约、存在操控空间，并质疑 Anubis 链的去中心化程度。属媒体观点，需自行核实。",
+          "en": "The article alleges the LGNS contract can call external contracts, creating manipulation surface, and questions how decentralized Anubis really is. Media opinion; verify independently."
+        },
+        "source": "百家号",
+        "url": "https://baijiahao.baidu.com/s?id=1879942506804550923",
+        "publishedAt": "2026-10-23T02:00:00.000Z",
+        "tag": "risk",
+        "lang": "zh"
+      },
+      {
+        "id": "official-burnbond-20260623",
+        "title": {
+          "zh": "官方社区公告：Burn Bond 合约地址将公示",
+          "en": "Official community post: Burn Bond contract address to be published"
+        },
+        "summary": {
+          "zh": "公告称销毁与参数调整将通过 DAO 投票，并提示勿点击第三方私链链接。公告内容未在链上验证，本站仅作来源记录。",
+          "en": "The post says burns and parameter changes will go through DAO votes and warns against third-party links. The content is not verified on-chain; recorded here as a source only."
+        },
+        "source": "官方社区公告（转载）",
+        "url": "https://mbd.baidu.com/newspage/data/dtlandingsuper?nid=dt_4667441596950354076",
+        "publishedAt": "2026-06-23T04:00:00.000Z",
+        "tag": "official",
+        "lang": "zh"
+      }
+    ]
+  },
+  "ts": "2026-10-30T10:10:27.465Z",
+  "stale": true,
+  "sources": [
+    {
+      "name": "人工核验 + 官方/媒体公开页面"
+    }
+  ]
+}
