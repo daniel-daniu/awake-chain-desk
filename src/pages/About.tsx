@@ -115,7 +115,7 @@ export default function About() {
         <div className="text-[13px] font-semibold text-ink">{t('about.built')}</div>
         <p className="mt-1.5 text-[12px] leading-relaxed text-muted">{t('about.builtDesc')}</p>
         <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-muted">
-          {['Cloudflare Pages', 'Pages Functions', 'React + Vite', 'Raw JSON-RPC', 'No cookies', 'No analytics'].map((x) => (
+          {['Cloudflare Pages', 'Pages Functions', 'React + Vite', 'Raw JSON-RPC', 'No cookies'].map((x) => (
             <span key={x} className="rounded-md bg-canvas px-2 py-1">
               {x}
             </span>
