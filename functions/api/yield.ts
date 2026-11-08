@@ -1,7 +1,8 @@
-import { json, fail, cached, fetchJson, rpcBatch, word, toBig } from '../_lib/utils'
+import { json, fail, cached, fetchJson, rpcBatch, rpcBatchAny, word, toBig } from '../_lib/utils'
 
 const A = 'https://rpc.anubispace.org'
 const P = 'https://polygon-bor-rpc.publicnode.com'
+const P_FALLBACKS = [P, 'https://1rpc.io/matic', 'https://polygon.drpc.org']
 const PA = 'https://polygon.drpc.org'
 const API = 'https://browser.anubispace.org/api/v2'
 
@@ -33,10 +34,11 @@ const call = (to: string, data: string, tag = 'latest') => ({ method: 'eth_call'
 const same = (a: string | null, b: string) => Boolean(a && a.toLowerCase().endsWith(b.slice(2).toLowerCase()))
 const pct = (a: number, b: number) => (b ? a / b - 1 : 0)
 
-async function chunked(url: string, calls: any[], size = 16) {
+async function chunked(url: string | string[], calls: any[], size = 16) {
+  const urls = Array.isArray(url) ? url : [url]
   const out: any[] = []
   for (let i = 0; i < calls.length; i += size) {
-    const part = await rpcBatch(url, calls.slice(i, i + size)).catch(() => [])
+    const part = await rpcBatchAny(urls, calls.slice(i, i + size)).catch(() => [])
     out.push(...part)
   }
   return out
@@ -113,7 +115,7 @@ export const onRequestGet = async (context: any) => {
           call(STAKING_A, SEL.index, aLatest),
           call(STAKING_A, SEL.index, aOld),
         ]),
-        chunked(P, [
+        chunked(P_FALLBACKS, [
           call(PAIR_P, SEL.token0),
           call(PAIR_P, SEL.token1),
           call(PAIR_P, SEL.reserves),
@@ -125,7 +127,7 @@ export const onRequestGet = async (context: any) => {
           call(SLGNS, SEL.index, pLatest),
           { method: 'eth_gasPrice', params: [] },
         ]),
-        chunked(PA, [
+        chunked([PA, 'https://1rpc.io/matic'], [
           call(LGNS_P, SEL.totalSupply, pOld),
           call(SLGNS, SEL.totalSupply, pOld),
           call(SLGNS, SEL.index, pOld),

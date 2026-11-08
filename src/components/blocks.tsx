@@ -103,17 +103,18 @@ export function PriceTaxBoard({ data }: { data?: YieldData }) {
       : fmtPrice(p, lang)
   const observed: Record<string, number> = { Polygon: 5.0, Anubis: 8.733, gLGNS: 2.0 }
   const cards = [
-    { name: 'Polygon', price: data.prices.polygon.price, tax: data.taxes.polygon.taxPct, color: '#7C5CE6' },
-    { name: 'Anubis', price: data.prices.anubis.price, tax: data.taxes.anubis.taxPct, color: '#0B6E75' },
-    { name: 'gLGNS', price: data.prices.glgns.price, tax: data.taxes.glgns.taxPct, color: '#15803D' },
+    { name: 'Polygon', price: data.prices.polygon?.price ?? null, tax: data.taxes.polygon?.taxPct ?? 0, color: '#7C5CE6' },
+    { name: 'Anubis', price: data.prices.anubis?.price ?? null, tax: data.taxes.anubis?.taxPct ?? 0, color: '#0B6E75' },
+    { name: 'gLGNS', price: data.prices.glgns?.price ?? null, tax: data.taxes.glgns?.taxPct ?? 0, color: '#15803D' },
   ]
+  const missing = cards.filter((c) => c.price === null).map((c) => c.name)
 
   return (
     <div>
       <div className="grid gap-3 sm:grid-cols-3">
         {cards.map((c) => {
           const eff = observed[c.name] ?? c.tax
-          const net = c.price * (1 - eff / 100)
+          const net = c.price === null ? null : c.price * (1 - eff / 100)
           return (
             <div key={c.name} className="card card-pad">
               <div className="flex items-center gap-2">
@@ -121,7 +122,7 @@ export function PriceTaxBoard({ data }: { data?: YieldData }) {
                 <span className="text-[12px] font-medium text-muted">{c.name}</span>
               </div>
               <div className="num mt-2 text-[26px] font-semibold leading-none tracking-[-0.02em] text-ink">
-                {priceText(c.price)}
+                {c.price === null ? '—' : priceText(c.price)}
               </div>
               <div className="mt-3 flex items-center justify-between gap-2">
                 <span className="rounded-md bg-canvas px-2 py-1 text-[10px] font-semibold text-muted">
@@ -133,9 +134,9 @@ export function PriceTaxBoard({ data }: { data?: YieldData }) {
               </div>
               <div className="mt-2 flex items-center justify-between">
                 <span className="text-[10px] text-muted">{pick({ zh: '净到手', en: 'Net received' })}</span>
-                <span className="num text-[13px] font-semibold text-ok">{priceText(net)}</span>
+                <span className="num text-[13px] font-semibold text-ok">{net === null ? '—' : priceText(net)}</span>
               </div>
-              {c.name === 'Anubis' && (
+              {c.name === 'Anubis' && c.price !== null && (
                 <div className="mt-1 text-[9px] text-muted">
                   {pick({ zh: `直卖合约 5% → ${priceText(c.price * 0.95)}`, en: `Direct sell 5% → ${priceText(c.price * 0.95)}` })}
                 </div>
@@ -144,6 +145,14 @@ export function PriceTaxBoard({ data }: { data?: YieldData }) {
           )
         })}
       </div>
+      {missing.length > 0 && (
+        <p className="mt-2 rounded-lg bg-warn-soft px-3 py-2 text-[10px] leading-relaxed text-warn">
+          {pick({
+            zh: `${missing.join(' / ')} 的链上数据暂时读不到（RPC 未返回），稍后会自动重试；其余数据不受影响。`,
+            en: `On-chain data for ${missing.join(' / ')} is temporarily unavailable (RPC returned nothing). It retries automatically; other figures are unaffected.`,
+          })}
+        </p>
+      )}
       <p className="mt-2 text-[10px] leading-relaxed text-muted">
         {pick({
           zh: '合约卖税读自 feeRatio / PRECISION，两链均为 5%，gLGNS 2%，买入税 0%。实测：Polygon 3 笔卖出均为 5.0%；Anubis 主路由 3 笔为 8.733%，另一直卖方法样本为 5.0%。第三方“Anubis 50%”未在合约或样本中找到。',

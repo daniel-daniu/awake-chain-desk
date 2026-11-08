@@ -1,7 +1,8 @@
-import { json, fail, cached, fetchJson, rpcBatch, word, toBig } from '../_lib/utils'
+import { json, fail, cached, fetchJson, rpcBatch, rpcBatchAny, word, toBig } from '../_lib/utils'
 
 const ANUBIS_RPC = 'https://rpc.anubispace.org'
 const POLYGON_RPC = 'https://polygon-bor-rpc.publicnode.com'
+const POLYGON_RPCS = [POLYGON_RPC, 'https://1rpc.io/matic', 'https://polygon.drpc.org']
 const API = 'https://browser.anubispace.org/api/v2'
 
 const LGNS = '0x4D1D808a081FdAc440703b3765FC61f8028C06B8'
@@ -28,7 +29,7 @@ export const onRequestGet = async (context: any) => {
       const [token, aRpc, pRpc] = await Promise.all([
         fetchJson<{ exchange_rate?: string }>(`${API}/tokens/${LGNS}`),
         rpcBatch(ANUBIS_RPC, pairCalls(ANUBIS_PAIR)).catch(() => [null, null, null]),
-        rpcBatch(POLYGON_RPC, pairCalls(POLYGON_PAIR)).catch(() => [null, null, null]),
+        rpcBatchAny(POLYGON_RPCS, pairCalls(POLYGON_PAIR)).catch(() => [null, null, null]),
       ])
 
       let anubisPrice: number | null = null

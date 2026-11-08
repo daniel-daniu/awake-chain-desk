@@ -154,6 +154,23 @@ export async function rpcBatch(
   }
 }
 
+/** 依次尝试多个 RPC 端点，直到拿到至少一个有效结果 */
+export async function rpcBatchAny(
+  urls: string[],
+  calls: { method: string; params: unknown[] }[],
+  timeout = 12000,
+) {
+  for (const url of urls) {
+    try {
+      const out = await rpcBatch(url, calls, timeout)
+      if (out.some((v) => v !== null)) return out
+    } catch {
+      // try next endpoint
+    }
+  }
+  return calls.map(() => null)
+}
+
 export const word = (hex: string | null, index: number) =>
   hex ? '0x' + hex.slice(2 + index * 64, 2 + (index + 1) * 64) : null
 

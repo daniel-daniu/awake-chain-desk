@@ -6,6 +6,7 @@ import { WalletProvider } from './lib/wallet'
 import { Header, MobileTabs } from './components/Header'
 import { Footer } from './components/Footer'
 import { DisclaimerModal } from './components/DisclaimerModal'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import Home from './pages/Home'
 import Chain from './pages/Chain'
 import Products from './pages/Products'
@@ -39,6 +40,7 @@ function NotFound() {
 
 function LangShell() {
   const { lang } = useParams<{ lang: string }>()
+  const { pathname } = useLocation()
   const valid = lang === 'zh' || lang === 'en'
 
   useEffect(() => {
@@ -53,7 +55,9 @@ function LangShell() {
         <div className="flex min-h-screen flex-col">
           <Header />
           <main className="flex-1 pb-20 lg:pb-0">
-            <Outlet />
+            <ErrorBoundary key={pathname}>
+              <Outlet />
+            </ErrorBoundary>
           </main>
           <Footer />
           <MobileTabs />

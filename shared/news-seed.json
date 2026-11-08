@@ -3,12 +3,12 @@
     {
       "id": "onchain-spread-20261030",
       "title": {
-        "zh": "链上对账：Anubis 与 Polygon 的 LGNS 价差约 4.2 倍",
-        "en": "On-chain check: LGNS trades ~4.2x higher on Polygon than on Anubis"
+        "zh": "链上对账：同一符号的 LGNS，在两条链上是两个合约",
+        "en": "Same symbol, two contracts: LGNS is not one asset across chains"
       },
       "summary": {
-        "zh": "Anubis 主池按 DAI 储备反推约 $0.048，Polygon QuickSwap 主池约 $0.203。两条链使用不同合约，价差反映流动性与兑付通道差异，不代表可以无风险套利。",
-        "en": "The Anubis pool implies about $0.048 from DAI reserves, while the Polygon QuickSwap pool quotes about $0.203. The tokens are different contracts; the gap reflects liquidity and redemption differences, not risk-free arbitrage."
+        "zh": "Anubis 主池与 Polygon QuickSwap 主池各自按 DAI 储备反推价格，实时价差见「链上数据」页。两条链使用不同合约、没有公开的自由兑换通道，价差反映流动性与兑付差异，不代表可以无风险套利。",
+        "en": "The Anubis and Polygon QuickSwap pools each imply a price from their DAI reserves; the live gap is on the on-chain page. They are different contracts with no public free bridge, so the gap reflects liquidity and redemption differences — not risk-free arbitrage."
       },
       "source": "本站链上读取",
       "url": "/zh/chain",
