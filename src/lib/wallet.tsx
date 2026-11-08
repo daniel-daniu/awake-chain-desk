@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ANUBIS } from '../config/chain'
 
 export interface Eip1193Provider {
   request: (args: { method: string; params?: unknown[] | object }) => Promise<unknown>
@@ -24,8 +23,6 @@ interface WalletValue {
   error: string | null
   connect: (wallet?: WalletInfo) => Promise<void>
   disconnect: () => void
-  switchToAnubis: () => Promise<void>
-  hasProvider: boolean
 }
 
 const WalletContext = createContext<WalletValue>({
@@ -35,10 +32,8 @@ const WalletContext = createContext<WalletValue>({
   chainId: null,
   connecting: false,
   error: null,
-  connect: async () => {},
-  disconnect: () => {},
-  switchToAnubis: async () => {},
-  hasProvider: false,
+  connect: async () => undefined,
+  disconnect: () => undefined,
 })
 
 const STORAGE_KEY = 'awake.wallet.uuid'
@@ -54,12 +49,19 @@ declare global {
 function fallbackWallets(): WalletInfo[] {
   const found: WalletInfo[] = []
   if (window.okxwallet) found.push({ uuid: 'okx', name: 'OKX Wallet', provider: window.okxwallet })
-  if (window.bitkeep?.ethereum)
+  if (window.bitkeep?.ethereum) {
     found.push({ uuid: 'bitget', name: 'Bitget Wallet', provider: window.bitkeep.ethereum })
+  }
   if (window.ethereum?.providers?.length) {
-    window.ethereum.providers.forEach((p, i) =>
-      found.push({ uuid: `injected-${i}`, name: (p as { isMetaMask?: boolean }).isMetaMask ? 'MetaMask' : `Injected ${i + 1}`, provider: p }),
-    )
+    window.ethereum.providers.forEach((provider, index) => {
+      found.push({
+        uuid: `injected-${index}`,
+        name: (provider as Eip1193Provider & { isMetaMask?: boolean }).isMetaMask
+          ? 'MetaMask'
+          : `Injected ${index + 1}`,
+        provider,
+      })
+    })
   } else if (window.ethereum) {
     found.push({
       uuid: 'injected',
@@ -79,23 +81,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const onAnnounce = (event: Event) => {
+    const announce = (event: Event) => {
       const detail = (event as CustomEvent).detail as WalletInfo | undefined
       if (!detail?.provider) return
-      setWallets((prev) => {
-        if (prev.some((w) => w.uuid === detail.uuid)) return prev
-        return [...prev, detail]
-      })
+      setWallets((current) =>
+        current.some((wallet) => wallet.uuid === detail.uuid) ? current : [...current, detail],
+      )
     }
-    window.addEventListener('eip6963:announceProvider', onAnnounce)
+    window.addEventListener('eip6963:announceProvider', announce)
     window.dispatchEvent(new Event('eip6963:requestProvider'))
-
     const timer = setTimeout(() => {
-      setWallets((prev) => (prev.length ? prev : fallbackWallets()))
-    }, 350)
-
+      setWallets((current) => (current.length ? current : fallbackWallets()))
+    }, 400)
     return () => {
-      window.removeEventListener('eip6963:announceProvider', onAnnounce)
+      window.removeEventListener('eip6963:announceProvider', announce)
       clearTimeout(timer)
     }
   }, [])
@@ -103,33 +102,27 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!active?.provider) return
     const provider = active.provider
-
-    const handleAccounts = (accounts: unknown) => {
+    const accountHandler = (accounts: unknown) => {
       const list = accounts as string[]
       setAddress(list?.[0] ?? null)
       if (!list?.length) setActive(null)
     }
-    const handleChain = (id: unknown) => {
-      setChainId(Number.parseInt(String(id), 16))
-    }
-
-    provider.on?.('accountsChanged', handleAccounts)
-    provider.on?.('chainChanged', handleChain)
-
-    ;(async () => {
+    const chainHandler = (id: unknown) => setChainId(Number.parseInt(String(id), 16))
+    provider.on?.('accountsChanged', accountHandler)
+    provider.on?.('chainChanged', chainHandler)
+    void (async () => {
       try {
         const accounts = (await provider.request({ method: 'eth_accounts' })) as string[]
-        if (accounts?.[0]) setAddress(accounts[0])
-        const cid = (await provider.request({ method: 'eth_chainId' })) as string
-        setChainId(Number.parseInt(cid, 16))
+        setAddress(accounts?.[0] ?? null)
+        const value = (await provider.request({ method: 'eth_chainId' })) as string
+        setChainId(Number.parseInt(value, 16))
       } catch {
-        // ignore
+        setAddress(null)
       }
     })()
-
     return () => {
-      provider.removeListener?.('accountsChanged', handleAccounts)
-      provider.removeListener?.('chainChanged', handleChain)
+      provider.removeListener?.('accountsChanged', accountHandler)
+      provider.removeListener?.('chainChanged', chainHandler)
     }
   }, [active])
 
@@ -137,7 +130,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     async (wallet?: WalletInfo) => {
       const target =
         wallet ||
-        wallets.find((w) => w.uuid === localStorage.getItem(STORAGE_KEY)) ||
+        wallets.find((candidate) => candidate.uuid === localStorage.getItem(STORAGE_KEY)) ||
         wallets[0]
       if (!target) {
         setError('NO_WALLET')
@@ -147,17 +140,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setError(null)
       try {
         const accounts = (await target.provider.request({ method: 'eth_requestAccounts' })) as string[]
-        if (!accounts?.[0]) throw new Error('NO_ACCOUNT')
+        if (!accounts?.[0]) throw new Error('No account returned')
         setActive(target)
         setAddress(accounts[0])
         localStorage.setItem(STORAGE_KEY, target.uuid)
-        const cid = (await target.provider.request({ method: 'eth_chainId' })) as string
-        setChainId(Number.parseInt(cid, 16))
-      } catch (e) {
-        const err = e as { code?: number; message?: string }
-        if (err.code === 4001) setError('REJECTED')
-        else if (err.code === -32002) setError('PENDING')
-        else setError(err.message || 'CONNECT_FAILED')
+        const value = (await target.provider.request({ method: 'eth_chainId' })) as string
+        setChainId(Number.parseInt(value, 16))
+      } catch (cause) {
+        const errorObject = cause as { code?: number; message?: string }
+        if (errorObject.code === 4001) setError('REJECTED')
+        else if (errorObject.code === -32002) setError('PENDING')
+        else setError(errorObject.message || 'CONNECT_FAILED')
       } finally {
         setConnecting(false)
       }
@@ -169,52 +162,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setActive(null)
     setAddress(null)
     setChainId(null)
+    setError(null)
     localStorage.removeItem(STORAGE_KEY)
   }, [])
 
-  const switchToAnubis = useCallback(async () => {
-    if (!active?.provider) return
-    const provider = active.provider
-    try {
-      await provider.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: ANUBIS.hexId }],
-      })
-    } catch (e) {
-      const err = e as { code?: number }
-      if (err.code === 4902 || err.code === -32603) {
-        await provider.request({
-          method: 'wallet_addEthereumChain',
-          params: [
-            {
-              chainId: ANUBIS.hexId,
-              chainName: ANUBIS.name,
-              nativeCurrency: ANUBIS.native,
-              rpcUrls: [ANUBIS.rpc],
-              blockExplorerUrls: [ANUBIS.explorer],
-            },
-          ],
-        })
-      } else {
-        setError('SWITCH_FAILED')
-      }
-    }
-  }, [active])
-
   const value = useMemo(
-    () => ({
-      wallets,
-      active,
-      address,
-      chainId,
-      connecting,
-      error,
-      connect,
-      disconnect,
-      switchToAnubis,
-      hasProvider: wallets.length > 0,
-    }),
-    [wallets, active, address, chainId, connecting, error, connect, disconnect, switchToAnubis],
+    () => ({ wallets, active, address, chainId, connecting, error, connect, disconnect }),
+    [wallets, active, address, chainId, connecting, error, connect, disconnect],
   )
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>

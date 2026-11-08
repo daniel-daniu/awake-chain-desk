@@ -1,366 +1,369 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useI18n } from '../i18n'
-import { useFlow, useNews, usePrice, useStats, useToken, useYield } from '../lib/api'
-import { computeRisk } from '../lib/math'
-import { fmtInt, fmtNum, fmtPct, fmtUsd } from '../lib/format'
-import type { NewsTag } from '../types'
+import { useHome, useNews } from '../lib/api'
+import { useI18n } from '../lib/i18n'
+import { fmtInt, fmtPct, relativeTime } from '../lib/format'
+import type { NewsItem } from '../types'
 import { PRODUCTS } from '../data/products'
-import { ChainOverviewCard, MetricCard, NewsFeed, PriceBoard, PriceTaxBoard, ProductCard, SnapshotCard } from '../components/blocks'
-import { Pill, SectionHeader, UpdatedAt } from '../components/ui'
-import { IconAlert, IconArrow, IconBolt, IconGlobe, IconShield } from '../components/Icons'
+import { Icon } from '../components/Icons'
+import {
+  CostMatrix,
+  DualQuoteBoard,
+  EventsList,
+  NewsFeed,
+  ProductMiniCard,
+  RewardEventCard,
+  YieldMatrix,
+} from '../components/dataViews'
+import {
+  ErrorView,
+  LoadingView,
+  MetricCard,
+  PageIntro,
+  Pill,
+  SectionHeader,
+  SourceStrip,
+  UpdatedAt,
+  WarningList,
+} from '../components/ui'
 
-const FILTERS: { key: 'all' | NewsTag; label: { zh: string; en: string } }[] = [
-  { key: 'all', label: { zh: '全部', en: 'All' } },
-  { key: 'official', label: { zh: '官方公告', en: 'Official' } },
-  { key: 'media', label: { zh: '媒体', en: 'Media' } },
-  { key: 'risk', label: { zh: '风险', en: 'Risk' } },
-  { key: 'onchain', label: { zh: '链上', en: 'On-chain' } },
-]
+type NewsFilter = 'all' | 'announcement' | 'news' | 'onchain'
 
 export default function Home() {
-  const { t, lang, pick } = useI18n()
-  const priceQ = usePrice()
-  const tokenQ = useToken()
-  const statsQ = useStats()
-  const newsQ = useNews()
-  const flowQ = useFlow()
-  const yieldQ = useYield()
-  const [filter, setFilter] = useState<'all' | NewsTag>('all')
+  const { lang, pick } = useI18n()
+  const query = useHome()
+  const newsQuery = useNews()
+  const [filter, setFilter] = useState<NewsFilter>('all')
+  const data = query.data?.data
 
-  const price = priceQ.data?.data
-  const token = tokenQ.data?.data
-  const stats = statsQ.data?.data
-  const yieldData = yieldQ.data
-  const news = newsQ.data?.data.items ?? []
+  const onchainNews = useMemo<NewsItem[]>(() => {
+    if (!data) return []
+    const eventLabel = (method: string) => {
+      const key = method.toLowerCase()
+      if (key === '0xd286f3cf' || key === 'claiminterest') return 'claimInterest'
+      if (key === '0xa694fc3a') return 'stake'
+      if (/^0x[0-9a-f]{8}$/.test(key)) {
+        return pick({ zh: `合约调用 ${method}`, en: `Contract call ${method}` })
+      }
+      return method || pick({ zh: '转账', en: 'transfer' })
+    }
+    return data.events
+      .flatMap((event) => event.latest)
+      .slice(0, 8)
+      .map((event) => ({
+        id: `onchain-${event.id}-${event.timestamp}`,
+        title: `${eventLabel(event.method)}: ${event.amount.toLocaleString('en-US', { maximumFractionDigits: 2 })} LGNS`,
+        summary: pick({
+          zh: `地址 ${event.counterparty.slice(0, 8)}…${event.counterparty.slice(-4)} 的链上记录`,
+          en: `On-chain record involving ${event.counterparty.slice(0, 8)}…${event.counterparty.slice(-4)}`,
+        }),
+        category: 'onchain' as const,
+        source: 'Anubis Blockscout',
+        url: event.explorerUrl,
+        publishedAt: event.timestamp,
+        language: 'en' as const,
+      }))
+  }, [data, pick])
 
-  const flow = flowQ.data?.data
-  const staked = token?.stakingBalance ?? 0
+  const externalNews = newsQuery.data?.data?.items ?? []
+  const mixedNews = useMemo(
+    () => [...externalNews.slice(0, 8), ...onchainNews.slice(0, 2)],
+    [externalNews, onchainNews],
+  )
+  const filtered =
+    filter === 'all'
+      ? mixedNews
+      : filter === 'onchain'
+        ? onchainNews
+        : externalNews.filter((item) => item.category === filter)
 
-  const risk = useMemo(() => {
-    if (!price || !token) return undefined
-    return computeRisk({
-      anubisPrice: price.primary,
-      polygonPrice: price.polygon?.price ?? null,
-      crossChainSpread: price.crossChainSpread ?? null,
-      top1Share: token.concentration.top1,
-      liquidityUsd: price.sources.find((s) => s.pair)?.liquidityUsd ?? 0,
-      marketCap: token.totalSupply * price.primary,
-      treasuryDai: null,
-      treasuryConfirmed: false,
-      totalSupply: token.totalSupply,
-      observedApyHigh: null,
-    })
-  }, [price, token])
+  if (query.isLoading) {
+    return (
+      <div className="container-page py-10">
+        <LoadingView />
+      </div>
+    )
+  }
 
-  const filtered = filter === 'all' ? news : news.filter((n) => n.tag === filter)
-  const poolDai = price?.sources.find((s) => s.pair)?.liquidityUsd ?? 0
-  const staking = token?.stakingBalance ?? 0
-  const stakingTvl = staking * (price?.primary ?? 0)
+  if (query.isError || !data) {
+    return (
+      <div className="container-page py-10">
+        <ErrorView message={query.error instanceof Error ? query.error.message : undefined} onRetry={() => void query.refetch()} />
+      </div>
+    )
+  }
+
+  const anubisNetwork = data.networks.find((network) => network.chain === 'anubis')
+  const polygonNetwork = data.networks.find((network) => network.chain === 'polygon')
+  const anubisYield = data.yields.find((item) => item.chain === 'anubis')
+  const polygonYield = data.yields.find((item) => item.chain === 'polygon')
+  const anubisQuote = data.quotes.find((quote) => quote.chain === 'anubis')
+  const polygonQuote = data.quotes.find((quote) => quote.chain === 'polygon')
 
   return (
-    <div className="container-page">
-      {/* Hero */}
-      <section className="relative mt-6 overflow-hidden rounded-2xl border border-line hero-panel px-5 py-8 md:mt-8 md:px-9 md:py-10">
-        <div className="relative z-10 grid gap-8 lg:grid-cols-[1.45fr_1fr] lg:items-center">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Pill tone="accent">
-                <IconGlobe size={12} /> {t('home.kicker')}
-              </Pill>
-              <Pill tone="neutral">{t('home.badge.nonofficial')}</Pill>
-            </div>
-            <h1 className="mt-4 max-w-2xl text-[26px] font-semibold leading-[1.2] tracking-[-0.025em] text-ink md:text-[36px]">
-              {lang === 'zh' ? (
-                <>
-                  {t('home.title1')}
-                  <br className="md:hidden" />
-                  {t('home.title2')}
-                </>
-              ) : (
-                <>
-                  <span className="block">{t('home.title1')}</span>
-                  <span className="block">{t('home.title2')}</span>
-                </>
-              )}
-            </h1>
-            <p className="mt-3 max-w-2xl text-[13px] leading-relaxed text-ink-2 md:text-[14px]">{t('home.subtitle')}</p>
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-              <Link to={`/${lang}/insights`} className="btn btn-primary">
-                <IconShield size={15} />
-                {t('nav.insights')}
-              </Link>
-              <Link to={`/${lang}/products`} className="btn btn-ghost">
-                {t('home.products.all')} <IconArrow size={14} />
-              </Link>
-              <span className="ml-1 text-[11px] text-muted">{t('home.badge.readonly')}</span>
-            </div>
-          </div>
-
-          <div className="hidden lg:flex lg:flex-col lg:justify-center" aria-hidden="true">
-            <svg viewBox="0 0 320 190" className="w-full">
-              <defs>
-                <linearGradient id="ring" x1="0" x2="1" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#0B6E75" stopOpacity="0.55" />
-                  <stop offset="100%" stopColor="#0B6E75" stopOpacity="0.05" />
-                </linearGradient>
-              </defs>
-              {[86, 66, 46, 26].map((r, i) => (
-                <circle
-                  key={r}
-                  cx="210"
-                  cy="96"
-                  r={r}
-                  fill="none"
-                  stroke="url(#ring)"
-                  strokeWidth={i === 0 ? 1.4 : 1}
-                  strokeDasharray={i === 2 ? '3 5' : undefined}
-                />
-              ))}
-              <circle cx="210" cy="96" r="5" fill="#0B6E75" />
-              <path d="M210 10v172M124 96h172" stroke="#0B6E75" strokeOpacity="0.18" strokeWidth="1" />
-              {([
-                [210, 10, 'BLK', 'start', 8, 15],
-                [296, 96, 'DAI', 'end', -8, 4],
-                [210, 182, 'LGNS', 'start', 8, -7],
-                [124, 96, 'PEG', 'end', -8, 4],
-              ] as [number, number, string, 'start' | 'end', number, number][]).map(([x, y, label, anchor, dx, dy]) => (
-                <g key={label}>
-                  <circle cx={x} cy={y} r="2.5" fill="#0B6E75" />
-                  <text
-                    x={x + dx}
-                    y={y + dy}
-                    textAnchor={anchor}
-                    fontSize="9"
-                    fill="#66738A"
-                    fontFamily="ui-monospace, monospace"
-                  >
-                    {label}
-                  </text>
-                </g>
-              ))}
-            </svg>
-            <div className="mt-1 flex items-center justify-between text-[10px] text-muted">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-ok" />
-                RPC · Blockscout · DEX reserves
-              </span>
-              <span className="mono">chainId 6714 / 137</span>
-            </div>
-          </div>
+    <div className="container-page pb-2">
+      <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-line bg-surface/75 px-4 py-3 shadow-card sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] text-muted">
+          <span className="inline-flex items-center gap-1.5">
+            <span className={`h-1.5 w-1.5 rounded-full ${data.warnings.length ? 'bg-warn' : 'bg-ok'}`} />
+            {data.warnings.length
+              ? pick({ zh: '部分链上数据不可用', en: 'Some on-chain data is unavailable' })
+              : pick({ zh: '双链数据已汇总', en: 'Dual-chain data aggregated' })}
+          </span>
+          <span>
+            Anubis <span className="mono text-ink">#{fmtInt(anubisNetwork?.blockNumber, lang)}</span>
+          </span>
+          <span>
+            Polygon <span className="mono text-ink">#{fmtInt(polygonNetwork?.blockNumber, lang)}</span>
+          </span>
         </div>
-      </section>
+        <UpdatedAt
+          timestamp={query.data?.retrievedAt}
+          partial={data.warnings.length > 0}
+          maxAgeMinutes={15}
+          onRefresh={() => void query.refetch()}
+          refreshing={query.isFetching}
+        />
+      </div>
 
-      {/* 导读：第一次来按这个顺序看 */}
-      <section className="mt-4 grid gap-2 sm:grid-cols-3">
-        {[
-          {
-            n: '01',
-            to: 'learn',
-            t: { zh: '先花 3 分钟搞懂名词', en: 'Spend 3 minutes on the basics' },
-            d: { zh: '区块、地址、Gas、年化，各是什么意思', en: 'Blocks, addresses, gas, APY — what they mean' },
-          },
-          {
-            n: '02',
-            to: 'chain',
-            t: { zh: '再看链上原始读数', en: 'Then the raw on-chain numbers' },
-            d: { zh: '双链价格、24h 增发、质押 index、手续费', en: 'Dual prices, 24h issuance, staking index, fees' },
-          },
-          {
-            n: '03',
-            to: 'insights',
-            t: { zh: '最后看风险解读', en: 'Then the risk read' },
-            d: { zh: '哪些指标在报警，为什么', en: 'Which indicators are flashing, and why' },
-          },
-        ].map((s) => (
-          <Link
-            key={s.n}
-            to={`/${lang}/${s.to}`}
-            className="group flex items-start gap-3 rounded-xl border border-line bg-white px-4 py-3 transition hover:border-accent/40 hover:shadow-sm"
-          >
-            <span className="num mt-0.5 text-[11px] font-semibold text-accent">{s.n}</span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[12px] font-semibold text-ink">{pick(s.t)}</span>
-              <span className="mt-0.5 block text-[11px] leading-relaxed text-muted">{pick(s.d)}</span>
-            </span>
-            <span className="mt-1 shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-accent">
-              <IconArrow size={13} />
-            </span>
-          </Link>
-        ))}
-      </section>
-
-      {/* 1. News — first content section */}
-      <section className="mt-8">
-        <div className="grid gap-5 lg:grid-cols-[1.55fr_1fr]">
-          <div>
-            <SectionHeader
-              title={t('home.news.title')}
-              desc={t('home.news.desc')}
-              action={
-                <div className="flex items-center gap-2">
-                  <UpdatedAt ts={newsQ.data?.ts} stale={newsQ.data?.stale} />
-                </div>
-              }
-            />
-            <div className="card overflow-hidden">
-              <div className="scroll-x flex items-center gap-1.5 border-b border-line px-4 py-3">
-                {FILTERS.map((f) => (
-                  <button
-                    key={f.key}
-                    onClick={() => setFilter(f.key)}
-                    className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-medium transition ${
-                      filter === f.key ? 'bg-ink text-white' : 'bg-canvas text-muted hover:text-ink'
-                    }`}
-                  >
-                    {pick(f.label)}
-                  </button>
-                ))}
-                <span className="ml-auto hidden shrink-0 text-[10px] text-muted sm:block">{t('home.news.auto')}</span>
-              </div>
-              {newsQ.isLoading ? (
-                <div className="space-y-3 p-5">
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} className="skeleton h-16 w-full" />
-                  ))}
-                </div>
-              ) : (
-                <NewsFeed items={filtered} limit={6} />
-              )}
-              <div className="border-t border-line bg-surface-2 px-5 py-3 text-[11px] text-muted">
-                {t('home.news.disclaimer')}
-              </div>
-            </div>
+      <PageIntro
+        eyebrow={pick({ zh: 'AWake 双链观测', en: 'AWAKE DUAL-CHAIN MONITOR' })}
+        title={pick({ zh: '先看真实数据，再决定是否参与。', en: 'See the real on-chain state before you decide.' })}
+        desc={pick({
+          zh: '价格、税费、收益、奖励和链上活动都直接读取合约与索引。新闻只作为外部来源，不与链上事实混写。',
+          en: 'Prices, taxes, yield, rewards and activity are read from contracts and chain indexes. News is kept as an external source, separate from on-chain facts.',
+        })}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Link to={`/${lang}/chains`} className="btn btn-primary">
+              {pick({ zh: '打开链上数据', en: 'Explore on-chain data' })} <Icon name="arrow" size={14} />
+            </Link>
+            <Link to={`/${lang}/learn`} className="btn btn-ghost">
+              {pick({ zh: '先看懂指标', en: 'Read the basics' })}
+            </Link>
           </div>
+        }
+      />
 
-          <div className="lg:pt-[52px]">
-            <SnapshotCard price={price} token={token} risk={risk} />
-            {risk && (
-              <div className="mt-3 flex items-start gap-2 rounded-xl border border-[#F3D9D5] bg-danger-soft px-4 py-3 text-[11px] leading-relaxed text-[#8E2E23]">
-                <span className="mt-0.5 shrink-0">
-                  <IconAlert size={14} />
+      <WarningList items={data.warnings} />
+
+      <section className="mt-7" id="news">
+        <SectionHeader
+          title={pick({ zh: '新闻与公告', en: 'News & announcements' })}
+          desc={pick({
+            zh: '外部来源与链上活动分区展示。标题保留原文语言，来源和原文链接可核对，数据不会被当成价值判断。',
+            en: 'External sources and on-chain activity are separated. Headlines remain in their original language, and sources and links stay inspectable; data is not turned into a value judgement.',
+          })}
+          action={
+            <div className="flex items-center gap-2">
+              <Link to={`/${lang}/news`} className="text-[10px] font-semibold text-accent hover:underline">
+                {pick({ zh: '全部信息', en: 'All updates' })}
+              </Link>
+              {newsQuery.isLoading ? (
+                <span className="text-[9px] text-muted">
+                  {pick({ zh: '正在读取外部来源…', en: 'Loading external sources…' })}
                 </span>
-                <span>
-                  {t('home.snapshot.alert', {
-                    x: price?.crossChainSpread ? `${price.crossChainSpread.toFixed(2)}×` : 'N/A',
-                    y: fmtPct(token?.concentration.top1 ?? 0, lang, 1),
-                  })}
-                </span>
+              ) : (
+                <UpdatedAt
+                  timestamp={newsQuery.data?.retrievedAt}
+                  partial={
+                    newsQuery.isError ||
+                    (newsQuery.data?.data?.sourceState ?? []).some((source) => source.status !== 'ok')
+                  }
+                  maxAgeMinutes={20}
+                />
+              )}
+            </div>
+          }
+        />
+        <div className="grid gap-4 lg:grid-cols-[1.45fr_0.55fr]">
+          <div className="card overflow-hidden">
+            <div className="scroll-x flex items-center gap-1.5 border-b border-line px-4 py-3">
+              {(
+                [
+                  ['all', { zh: '全部', en: 'All' }],
+                  ['announcement', { zh: '公告', en: 'Announcements' }],
+                  ['news', { zh: '新闻', en: 'News' }],
+                  ['onchain', { zh: '链上事件', en: 'On-chain' }],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setFilter(key as NewsFilter)}
+                  className={`focus-ring shrink-0 rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${
+                    filter === key ? 'bg-ink text-white' : 'bg-[#f5f4ef] text-muted hover:text-ink'
+                  }`}
+                >
+                  {pick(label)}
+                </button>
+              ))}
+              <span className="ml-auto hidden items-center gap-1 text-[9px] text-muted sm:flex">
+                <Icon name="clock" size={11} />
+                {pick({ zh: '新闻约 15 分钟刷新', en: 'News refreshes about every 15m' })}
+              </span>
+            </div>
+            {!newsQuery.isLoading &&
+              (newsQuery.isError ||
+                (newsQuery.data?.data?.items.length ?? 0) === 0 ||
+                (newsQuery.data?.data?.sourceState ?? []).some((source) => source.status === 'error')) && (
+              <div className="flex items-start gap-2 border-b border-[#efd7bc] bg-warnsoft/60 px-4 py-2.5 text-[9.5px] leading-relaxed text-[#74400e]">
+                <Icon name="alert" size={12} className="mt-0.5 shrink-0" />
+                {pick({
+                  zh: '部分外部新闻源暂时不可用；已返回的条目和链上事件仍正常显示，不使用固定新闻顶替。',
+                  en: 'Some external news sources are unavailable. Returned items and on-chain events remain visible; no fixed news is substituted.',
+                })}
               </div>
             )}
+            {newsQuery.isLoading && filter !== 'onchain' ? (
+              <div className="space-y-3 p-4">
+                {[0, 1, 2].map((item) => <div key={item} className="skeleton h-16" />)}
+              </div>
+            ) : (
+              <NewsFeed
+                items={filtered}
+                limit={6}
+                emptyText={
+                  (newsQuery.isError || (newsQuery.data?.data?.items.length ?? 0) === 0) && filter !== 'onchain'
+                    ? pick({ zh: '外部新闻源暂时不可读，链上事件仍可查看。', en: 'External news is unavailable; on-chain events remain readable.' })
+                    : pick({ zh: '当前筛选下没有可读条目。', en: 'No readable items in this filter.' })
+                }
+              />
+            )}
+            <div className="border-t border-line bg-[#faf9f5] px-4 py-2.5 text-[9px] leading-relaxed text-muted">
+              {pick({
+                zh: '新闻与公告属于外部来源，未经链上数值验证；链上事件才作为“链上事实”展示。',
+                en: 'News and announcements are external sources, not on-chain numeric verification. Only chain events are presented as on-chain facts.',
+              })}
+            </div>
+          </div>
+          <div className="space-y-3">
+            <EventsList events={data.events} />
+            <RewardEventCard event={data.events[0]} />
           </div>
         </div>
       </section>
 
-      {/* 2. Core metrics */}
-      <section className="mt-10">
-        <SectionHeader title={t('home.metrics.title')} desc={t('home.metrics.desc')} />
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <MetricCard label={t('home.snapshot.marketcap')} value={token ? fmtUsd(token.totalSupply * (price?.primary ?? 0), lang) : '—'} />
-          <MetricCard label={t('home.snapshot.supply')} value={token ? `${fmtNum(token.totalSupply / 1e9, lang, 2)}B` : '—'} />
-          <MetricCard label={t('home.snapshot.holders')} value={token ? fmtInt(token.holders, lang) : '—'} hint={t('chain.note')} />
-          <MetricCard
-            label={t('home.snapshot.staking')}
-            value={token ? `${fmtNum(staking / 1e9, lang, 2)}B` : '—'}
-            hint={token ? `${fmtPct(token.concentration.top1, lang, 1)} · ${fmtUsd(stakingTvl, lang)}` : undefined}
-          />
-          <MetricCard
-            label={t('chain.blocksPerDay')}
-            value={statsQ.isLoading ? '…' : stats?.anubis.blocksPerDay ? fmtInt(stats.anubis.blocksPerDay, lang) : '—'}
-            hint={stats?.anubis.blockTime ? `${stats.anubis.blockTime.toFixed(3)}s / block` : undefined}
-          />
-          <MetricCard
-            label={t('chain.dailyFee')}
-            value={statsQ.isLoading ? '…' : stats?.anubis.dailyFee ? `${fmtNum(stats.anubis.dailyFee, lang, 0)} DAI` : '—'}
-            hint={stats?.anubis.avgBlockFee ? `${fmtNum(stats.anubis.avgBlockFee, lang, 4)} DAI / block` : undefined}
-          />
-          <MetricCard
-            label={t('chain.claimShare')}
-            value={flowQ.isLoading ? '…' : flow ? fmtPct(flow.claimShare, lang, 1) : '—'}
-            hint={flow ? `${t('chain.sampled')} ${fmtInt(flow.sampled, lang)} / ${fmtNum(flow.spanSec, lang, 0)}s` : undefined}
-          />
-          <MetricCard
-            label={t('chain.medianClaim')}
-            value={flowQ.isLoading ? '…' : flow ? `${fmtNum(flow.medianClaim, lang, 2)} LGNS` : '—'}
-            hint={flow ? `${t('chain.sampled')} ${fmtInt(flow.sampled, lang)} / ${fmtNum(flow.spanSec, lang, 0)}s` : undefined}
-          />
-        </div>
-      </section>
-
-      {/* On-chain interest */}
       <section className="mt-10">
         <SectionHeader
-          title={pick({ zh: '链上利息（24h 实测）', en: 'On-chain interest (24h measured)' })}
+          title={pick({ zh: '双链速览', en: 'Dual-chain snapshot' })}
           desc={pick({
-            zh: '质押 index 来自合约 24h 前后读数；增发来自 totalSupply 24h 差值，包含利息、债券与跨链铸造。',
-            en: 'Staking index is read 24h apart; issuance is the 24h totalSupply delta, including interest, bonds and bridge minting.',
+            zh: '价格由池子储备反推，税后参考价只扣合约卖出税，不包含滑点。',
+            en: 'Prices are derived from pool reserves. The after-tax quote deducts contract sell tax only and excludes slippage.',
           })}
+          action={<SourceStrip sources={query.data?.sources ?? []} />}
         />
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <DualQuoteBoard quotes={data.quotes} />
+        <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <MetricCard
-            label={pick({ zh: '质押日化', en: 'Staking daily' })}
-            value={yieldData ? `${fmtNum(yieldData.interest.index.dailyPct, lang, 4)}%` : '…'}
-            hint="index 24h"
+            label="Anubis 24h"
+            value={fmtPct(anubisYield?.windows[0]?.dailyPct, lang, 4)}
+            hint={pick({ zh: 'index 实测日化', en: 'Measured index daily' })}
             tone="warn"
           />
           <MetricCard
-            label={pick({ zh: '年化（复利）', en: 'Annualized (compound)' })}
-            value={yieldData ? `${fmtNum(yieldData.interest.index.annualCompoundPct, lang, 1)}%` : '…'}
-            hint={yieldData ? `${pick({ zh: '单利', en: 'Simple' })} ${fmtNum(yieldData.interest.index.annualSimplePct, lang, 1)}%` : undefined}
+            label="Anubis APY"
+            value={fmtPct(anubisYield?.windows[0]?.annualCompoundPct, lang, 1)}
+            hint={pick({ zh: '由 24h 实测复利换算', en: 'Compounded from measured 24h' })}
             tone="warn"
           />
           <MetricCard
-            label={pick({ zh: 'Anubis 24h 增发', en: 'Anubis 24h issuance' })}
-            value={yieldData ? `+${fmtNum(yieldData.interest.anubisSupply.dailyPct, lang, 2)}%` : '…'}
-            hint={yieldData ? `${fmtNum(yieldData.interest.anubisSupply.delta / 1e6, lang, 2)}M LGNS` : undefined}
-            tone="danger"
+            label="Polygon 24h"
+            value={fmtPct(polygonYield?.windows[0]?.dailyPct, lang, 4)}
+            hint={pick({ zh: 'index 实测日化', en: 'Measured index daily' })}
+            tone="warn"
           />
           <MetricCard
-            label={pick({ zh: 'Polygon 24h 增发', en: 'Polygon 24h issuance' })}
-            value={yieldData ? `+${fmtNum(yieldData.interest.polygonSupply.dailyPct, lang, 2)}%` : '…'}
-            hint={yieldData ? `${fmtNum(yieldData.interest.polygonSupply.delta / 1e6, lang, 2)}M LGNS` : undefined}
-            tone="danger"
+            label="Polygon APY"
+            value={fmtPct(polygonYield?.windows[0]?.annualCompoundPct, lang, 1)}
+            hint={pick({ zh: '由 24h 实测复利换算', en: 'Compounded from measured 24h' })}
+            tone="warn"
+          />
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <MetricCard
+            label={pick({ zh: 'Anubis 池内 DAI', en: 'Anubis pool DAI' })}
+            value={anubisQuote?.daiReserve !== null && anubisQuote ? `${fmtInt(anubisQuote.daiReserve, lang)} DAI` : 'N/A'}
+            hint={pick({ zh: '承接卖单的池子深度', en: 'Depth available to absorb sells' })}
+          />
+          <MetricCard
+            label={pick({ zh: 'Polygon 池内 DAI', en: 'Polygon pool DAI' })}
+            value={polygonQuote?.daiReserve !== null && polygonQuote ? `${fmtInt(polygonQuote.daiReserve, lang)} DAI` : 'N/A'}
+            hint={pick({ zh: '与 Anubis 是独立储备', en: 'Independent reserves from Anubis' })}
+          />
+          <MetricCard
+            label={pick({ zh: '最近 24h 区块数', en: 'Blocks / latest 24h' })}
+            value={`${fmtInt(anubisNetwork?.blocksPerDay, lang)} / ${fmtInt(polygonNetwork?.blocksPerDay, lang)}`}
+            hint={pick({ zh: 'Anubis / Polygon，按实测出块换算', en: 'Anubis / Polygon, estimated from measured block time' })}
           />
         </div>
       </section>
 
-      {/* 3. Price + chains */}
-      <section className="mt-10 grid gap-5 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <SectionHeader title={t('home.price.title')} desc={t('home.price.crossNote')} />
-          <PriceTaxBoard data={yieldData} />
-          <div className="mt-3">
-            <PriceBoard price={price} loading={priceQ.isLoading} compact />
-          </div>
-        </div>
-        <div>
-          <SectionHeader title={t('home.chain.title')} desc={t('home.chain.desc')} />
-          <div className="grid gap-3">
-            <ChainOverviewCard kind="anubis" stats={stats} />
-            <ChainOverviewCard kind="polygon" stats={stats} />
-          </div>
-        </div>
-      </section>
-
-      {/* 4. Products */}
       <section className="mt-10">
         <SectionHeader
-          title={t('home.products.title')}
-          desc={t('home.products.desc')}
+          title={pick({ zh: '收益与成本', en: 'Yield & costs' })}
+          desc={pick({
+            zh: '收益看 index 的实际变化，成本分拆为合约税、Gas 和协议费用。',
+            en: 'Yield follows actual index changes; costs are split into contract tax, gas and protocol fees.',
+          })}
           action={
-            <Link to={`/${lang}/products`} className="btn btn-ghost btn-sm">
-              {t('home.products.all')} <IconArrow size={13} />
+            <Pill tone="warn">
+              <Icon name="info" size={11} />
+              {pick({ zh: '年化是代币数量变化', en: 'APY describes token count' })}
+            </Pill>
+          }
+        />
+        <div className="grid gap-3 xl:grid-cols-[1.2fr_0.8fr]">
+          <YieldMatrix yields={data.yields} compact />
+          <CostMatrix quotes={data.quotes} networks={data.networks} />
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <SectionHeader
+          title={pick({ zh: '产品一览', en: 'Products at a glance' })}
+          desc={pick({ zh: '先看数据是否可读，再看收益。不可读参数不会进入排名。', en: 'Check data availability before yield. Unreadable parameters are not ranked.' })}
+          action={
+            <Link to={`/${lang}/products`} className="text-[10px] font-semibold text-accent hover:underline">
+              {pick({ zh: '全部产品与对比', en: 'All products & comparison' })}
             </Link>
           }
         />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {PRODUCTS.slice(0, 6).map((p) => (
-            <ProductCard
-              key={p.id}
-              product={p}
-              tvl={p.id === 'staking' ? stakingTvl : p.id === 'liquidity' ? poolDai * 2 : undefined}
-              interestMedian={p.id === 'staking' ? flow?.medianClaim ?? null : null}
-            />
+          {PRODUCTS.slice(0, 6).map((product) => (
+            <ProductMiniCard key={product.id} product={product} data={data} />
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <SectionHeader title={pick({ zh: '快速看懂', en: 'Read it in context' })} />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            {
+              title: { zh: '年化 ≠ 美元收益', en: 'APY ≠ USD profit' },
+              body: { zh: '代币数量增加时，币价和流动性仍可能下降。', en: 'Token count can grow while price and liquidity fall.' },
+            },
+            {
+              title: { zh: '价差 ≠ 无风险套利', en: 'Spread ≠ free arbitrage' },
+              body: { zh: '两个 LGNS 合约没有公开的自由兑换承诺。', en: 'There is no public guarantee of free conversion between the two LGNS contracts.' },
+            },
+            {
+              title: { zh: '池深决定退出', en: 'Depth shapes your exit' },
+              body: { zh: '池内 DAI 越少，大额卖出的实际冲击越大。', en: 'Less DAI in the pool means bigger impact from a large sell.' },
+            },
+            {
+              title: { zh: '未开源 = 难验证', en: 'Unverified = hard to verify' },
+              body: { zh: '读不到的规则显示不可读，不替它补一个数字。', en: 'Unreadable rules stay unreadable instead of receiving invented numbers.' },
+            },
+          ].map((item) => (
+            <div key={item.title.en} className="card card-pad">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-accentsoft text-accent">
+                <Icon name="shield" size={15} />
+              </div>
+              <div className="mt-3 text-[12px] font-semibold text-ink">{pick(item.title)}</div>
+              <p className="mt-1.5 text-[10.5px] leading-relaxed text-muted">{pick(item.body)}</p>
+            </div>
           ))}
         </div>
       </section>

@@ -1,408 +1,280 @@
-import { useI18n } from '../i18n'
+import type { ReactNode } from 'react'
 import { useEcosystem } from '../lib/api'
-import type { EcosystemToken } from '../types'
-import { fmtInt, fmtNum, fmtPct, shortAddr } from '../lib/format'
-import { CopyButton, ExternalLink, Pill, SectionHeader, UpdatedAt } from '../components/ui'
-import { IconAlert, IconArrow, IconInfo } from '../components/Icons'
+import { useI18n } from '../lib/i18n'
+import { DAPP_REGISTRY_URL, HELIX } from '../config/site'
+import { fmtInt, fmtPct, fmtPrice, fmtToken, shortAddr } from '../lib/format'
+import { Address, ErrorView, LoadingView, PageIntro, Pill, ProgressBar, SectionHeader, SourceStrip, UpdatedAt, WarningList } from '../components/ui'
+import { Icon } from '../components/Icons'
 
-const EXPLORER = 'https://browser.anubispace.org'
+function progress(cap: number | null, remaining: number | null) {
+  if (cap === null || remaining === null || cap <= 0) return null
+  return Math.max(0, Math.min(100, ((cap - remaining) / cap) * 100))
+}
 
-function TokenCard({
-  token,
+function QuotaCard({
   title,
-  desc,
-  color,
-  supplyLabel,
+  cap,
+  remaining,
+  unit,
+  expected,
 }: {
-  token?: EcosystemToken
-  title: string
-  desc: string
-  color: string
-  supplyLabel: string
+  title: ReactNode
+  cap: number | null
+  remaining: number | null
+  unit: string
+  expected: ReactNode
 }) {
   const { lang, pick } = useI18n()
-  if (!token) return <div className="card card-pad h-[260px] skeleton" />
+  const used = progress(cap, remaining)
   return (
     <div className="card card-pad">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full" style={{ background: color }} />
-            <span className="text-[13px] font-semibold text-ink">{title}</span>
-          </div>
-          <div className="mt-1 text-[11px] text-muted">{token.name}</div>
+          <div className="label">{title}</div>
+          <div className="num mt-2 text-[20px] font-semibold text-ink">{fmtPct(used, lang, 2)}</div>
         </div>
-        <Pill tone={token.verified ? 'ok' : 'warn'}>
-          {token.verified ? pick({ zh: '已开源', en: 'Verified' }) : pick({ zh: '未开源', en: 'Unverified' })}
-        </Pill>
+        <Pill tone="warn">{pick({ zh: '当前额度', en: 'Current quota' })}</Pill>
       </div>
-
-      <p className="mt-3 text-[11px] leading-relaxed text-muted">{desc}</p>
-
-      <div className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-3">
-        <div>
-          <div className="label">{supplyLabel}</div>
-          <div className="num mt-0.5 text-[15px] font-semibold text-ink">
-            {token.type === 'ERC-721' ? fmtInt(token.supply, lang) : fmtInt(token.supply, lang)}
-          </div>
-        </div>
-        <div>
-          <div className="label">{pick({ zh: '持有地址', en: 'Holders' })}</div>
-          <div className="num mt-0.5 text-[15px] font-semibold text-ink">{fmtInt(token.holders, lang)}</div>
-        </div>
-        <div>
-          <div className="label">{pick({ zh: '累计转账', en: 'Transfers' })}</div>
-          <div className="num mt-0.5 text-[15px] font-semibold text-ink">{fmtInt(token.transfers, lang)}</div>
-        </div>
-        <div>
-          <div className="label">{pick({ zh: '头部地址占比', en: 'Top holder share' })}</div>
-          <div className={`num mt-0.5 text-[15px] font-semibold ${token.topHolderShare > 50 ? 'text-danger' : 'text-ink'}`}>
-            {fmtPct(token.topHolderShare / 100, lang, 2)}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-center justify-between border-t border-line pt-3 text-[11px] text-muted">
-        <span>
-          {pick({ zh: '最近 50 笔中 24h 内', en: 'In 24h of latest 50' })}：{token.in24h}
+      <ProgressBar value={used} tone="accent" />
+      <div className="mt-3 flex justify-between text-[10px] text-muted">
+        <span>{pick({ zh: '已用', en: 'Used' })}</span>
+        <span className="num text-ink">
+          {cap !== null && remaining !== null ? fmtToken(cap - remaining, lang, unit) : 'N/A'}
         </span>
-        <span className="mono">{shortAddr(token.address, 6, 4)}</span>
       </div>
+      <div className="mt-1 flex justify-between text-[10px] text-muted">
+        <span>{pick({ zh: '上限', en: 'Cap' })}</span>
+        <span className="num text-ink">{fmtToken(cap, lang, unit)}</span>
+      </div>
+      <p className="mt-3 border-t border-line pt-3 text-[9px] leading-relaxed text-muted">{expected}</p>
     </div>
   )
 }
 
 export default function Ecosystem() {
-  const { t, lang, pick } = useI18n()
-  const q = useEcosystem()
-  const d = q.data
+  const { lang, pick } = useI18n()
+  const query = useEcosystem()
+  const data = query.data?.data
+
+  if (query.isLoading) {
+    return (
+      <div className="container-page py-10">
+        <LoadingView rows={8} />
+      </div>
+    )
+  }
+  if (query.isError || !data) {
+    return (
+      <div className="container-page py-10">
+        <ErrorView message={query.error instanceof Error ? query.error.message : undefined} onRetry={() => void query.refetch()} />
+      </div>
+    )
+  }
+
+  const aiDai = data.pairs.find((pair) => pair.name.includes('DAI'))
+  const helixContracts = data.contracts.filter((contract) =>
+    ['ailgns', 'helix-ledger', 'helix-lens', 'helix-nft'].includes(contract.key),
+  )
 
   return (
-    <div className="container-page py-8 md:py-10">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-[26px] font-semibold tracking-[-0.02em] text-ink md:text-[32px]">
-            AiLGNS &amp; HELIX
-          </h1>
-          <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-muted">
-            {pick({
-              zh: 'AiLGNS 的 AI 服务门户说明，以及 HELIX 的 LGNS 销毁算力规则；数据来自 Anubis 链上同名合约与转账记录。',
-              en: 'AiLGNS AI service portal notes and HELIX LGNS burn-hashpower rules; data comes from same-name contracts and transfers on Anubis.',
-            })}
-          </p>
-        </div>
-        <UpdatedAt ts={d?.ts} stale={q.data ? false : undefined} />
-      </div>
-
-      <div className="mt-5 flex items-start gap-2.5 rounded-xl border border-[#F1E2C8] bg-warn-soft px-4 py-3 text-[12px] leading-relaxed text-[#7A4A0C]">
-        <span className="mt-0.5 shrink-0">
-          <IconAlert size={15} />
-        </span>
-        {pick({
-          zh: '官方尚未公示 AiLGNS / HELIX 主合约地址。以下为 Anubis 链上同名、活跃度最高的合约，按名称与转账活动筛选，仅供链上观察，不构成官方认定。合约均未开源。',
-          en: 'No official AiLGNS / HELIX contract addresses have been published. The contracts below are the most active same-name contracts on Anubis, selected by name and transfer activity. They are for on-chain observation only and are not an official confirmation. All are unverified.',
+    <div className="container-page pb-2">
+      <PageIntro
+        eyebrow="AWAKE HELIX · ANUBIS CHAIN"
+        title="AiLGNS / HELIX"
+        desc={pick({
+          zh: '先分开理解“公开机制”和“链上当前状态”：前者解释协议如何设计，后者才证明合约现在返回了什么。',
+          en: 'Separate public mechanics from the current on-chain state: the former explains the design, while the latter proves what the contracts return right now.',
         })}
-      </div>
+        action={
+          <div className="flex flex-col items-start gap-2 sm:items-end">
+            <UpdatedAt
+              timestamp={query.data?.retrievedAt}
+              partial={data.warnings.length > 0}
+              maxAgeMinutes={15}
+              onRefresh={() => void query.refetch()}
+              refreshing={query.isFetching}
+            />
+            <SourceStrip sources={query.data?.sources ?? []} />
+          </div>
+        }
+      />
+      <WarningList items={data.warnings} />
 
-      <section className="mt-8">
+      <section className="mt-7 grid gap-3 md:grid-cols-3">
+        {[
+          {
+            label: 'AiLGNS',
+            title: { zh: '协议代币，不是 LGNS 升级', en: 'A protocol token, not an LGNS upgrade' },
+            body: {
+              zh: '它是与 LGNS 不同的合约。公开资料把 HELIX 视为其使用场景；本站只把链上供应、持有和池子数据当作当前事实。',
+              en: 'It is a different contract from LGNS. Public materials describe HELIX as its mechanism; this site treats supply, holders and pools as current chain facts only.',
+            },
+          },
+          {
+            label: 'HELIX',
+            title: { zh: 'Power 与每日排放机制', en: 'A Power and daily-emission mechanism' },
+            body: {
+              zh: 'HELIX 不是新链。它用 DAI、LGNS 或 AiLGNS 对应的 Power 参与每日结算和排放，当前值从账本与额度合约读取。',
+              en: 'HELIX is not a new chain. DAI, LGNS or AiLGNS-related Power participates in daily settlement and emissions; current values come from the ledger and quota contracts.',
+            },
+          },
+          {
+            label: pick({ zh: '与 LGNS 的关系', en: 'Relation to LGNS' }),
+            title: { zh: '输入资产与独立排放并存', en: 'An input asset with a separate emission system' },
+            body: {
+              zh: 'LGNS 可以作为 HELIX 的参与或销毁资产，但 HELIX 不自动改变 LGNS 自身的增发、价格或兑付风险。',
+              en: 'LGNS can be an input or burn asset for HELIX, but HELIX does not automatically change LGNS issuance, price or redemption risk.',
+            },
+          },
+        ].map((item) => (
+          <div key={item.label} className="card card-pad">
+            <Pill tone="accent">{item.label}</Pill>
+            <h2 className="mt-4 text-[13px] font-semibold leading-snug">{pick(item.title)}</h2>
+            <p className="mt-2 text-[10.5px] leading-relaxed text-muted">{pick(item.body)}</p>
+          </div>
+        ))}
+      </section>
+
+      <section className="mt-9">
         <SectionHeader
-          title={pick({ zh: '先用一句话说清楚', en: 'In one sentence each' })}
-          desc={pick({
-            zh: '如果你只有一分钟，看这三张卡就够了。',
-            en: 'If you only have a minute, these three cards are enough.',
-          })}
+          title={pick({ zh: '链上当前概览', en: 'Current on-chain overview' })}
+          desc={pick({ zh: '合约返回值和浏览器索引分开展示。没有读到时不使用演示值。', en: 'Contract returns and explorer indexes are shown separately. No demo values are used when data is missing.' })}
         />
-        <div className="grid gap-3 lg:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <div className="card card-pad">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-[#7C5CE6]" />
-              <span className="text-[13px] font-semibold text-ink">AiLGNS</span>
-            </div>
-            <p className="mt-2 text-[12px] leading-relaxed text-ink-2">
-              {pick({
-                zh: '按公开说法，它是一个 AI 服务入口：用不同模型做文案、绘图、规划，用链上资产付费。AiLGNS 是这个服务对应的代币，和 LGNS 是两个不同合约，不能互换、也不构成 LGNS 的升级。',
-                en: 'Publicly described as an AI service portal: use different models for copywriting, images and planning, paying with on-chain assets. AiLGNS is the token for that service — a different contract from LGNS, not interchangeable and not an upgrade of LGNS.',
-              })}
-            </p>
+            <div className="label">AiLGNS {pick({ zh: '总供应', en: 'supply' })}</div>
+            <div className="num mt-2 text-[21px] font-semibold">{fmtToken(data.aiToken?.totalSupply, lang, 'AiLGNS')}</div>
+            <div className="mt-1 text-[9px] text-muted">{data.aiToken?.address ? shortAddr(data.aiToken.address, 7, 5) : 'N/A'}</div>
           </div>
           <div className="card card-pad">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-[#15803D]" />
-              <span className="text-[13px] font-semibold text-ink">HELIX</span>
-            </div>
-            <p className="mt-2 text-[12px] leading-relaxed text-ink-2">
-              {pick({
-                zh: '它不是新链，也不是新币，而是一套规则：把 LGNS 销毁，换成功率凭证（Production NFT 与 HelixPower），再按规则分配权益。7 天一个周期，单钱包每周期一次，单次上限 500 LGNS。',
-                en: 'Not a new chain and not a new coin, but a rule set: burn LGNS to obtain hashpower certificates (Production NFT and HelixPower), then allocate benefits by rule. A 7-day epoch, one burn per wallet per epoch, max 500 LGNS each time.',
-              })}
-            </p>
+            <div className="label">{pick({ zh: 'AiLGNS 持有地址', en: 'AiLGNS holders' })}</div>
+            <div className="num mt-2 text-[21px] font-semibold">{fmtInt(data.aiToken?.holders, lang)}</div>
+            <div className="mt-1 text-[9px] text-muted">{pick({ zh: '地址数不等于用户数', en: 'Addresses are not users' })}</div>
           </div>
           <div className="card card-pad">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-accent" />
-              <span className="text-[13px] font-semibold text-ink">{pick({ zh: '和 LGNS 的关系', en: 'How they relate to LGNS' })}</span>
-            </div>
-            <p className="mt-2 text-[12px] leading-relaxed text-ink-2">
-              {pick({
-                zh: 'AiLGNS 是与 LGNS 并列的另一个代币；HELIX 是 LGNS 的一个使用场景，会减少 LGNS 的流通量。两者都不改变 LGNS 的增发规则，所以它们的出现不等于 LGNS 的风险下降。',
-                en: 'AiLGNS is a separate token alongside LGNS; HELIX is a use case for LGNS that removes some supply from circulation. Neither changes how LGNS is issued, so their existence does not lower LGNS risk.',
-              })}
-            </p>
+            <div className="label">{pick({ zh: '第一大地址占比', en: 'Top holder share' })}</div>
+            <div className="num mt-2 text-[21px] font-semibold text-warn">{fmtPct(data.aiToken?.top1Pct, lang, 2)}</div>
+            <div className="mt-1 text-[9px] text-muted">{shortAddr(data.aiToken?.top1Address, 7, 5)}</div>
           </div>
-        </div>
-      </section>
-
-      <section className="mt-8">
-        <SectionHeader
-          title={pick({ zh: '你该怎么看待这两个项目', en: 'How to think about these two' })}
-          desc={pick({
-            zh: '按顺序核对这四件事。任何一条核不清，答案就是“先不参与”。',
-            en: 'Check these four in order. If any one cannot be verified, the answer is “stay out for now”.',
-          })}
-        />
-        <div className="card divide-y divide-line">
-          {[
-            {
-              t: { zh: '这是不是官方合约？', en: 'Is this the official contract?' },
-              d: {
-                zh: '官方没有公示地址，本页用的是链上同名、最活跃的合约。名字一样不等于官方，任何人都能发一个叫 AiLGNS 的代币。',
-                en: 'No official address has been published; this page uses the most active same-name contract on-chain. A matching name is not proof — anyone can deploy a token called AiLGNS.',
-              },
-            },
-            {
-              t: { zh: '币在谁手里？', en: 'Who holds the supply?' },
-              d: {
-                zh: 'AiLGNS 的创建者地址持有 99.98%，HelixPower 持有 90.40%。这意味着价格、流动性、规则解释权都高度依赖一方，散户无法用投票或赎回制衡。',
-                en: 'The AiLGNS creator holds 99.98%, and HelixPower 90.40%. Price, liquidity and rule interpretation all depend on one party, with no vote or redemption to balance it.',
-              },
-            },
-            {
-              t: { zh: '有没有人真的在用？', en: 'Is anyone actually using it?' },
-              d: {
-                zh: '看最近的转账活动。AiLGNS 最近 50 笔里 24 小时内 0 笔，说明近期几乎没有真实使用；HPNFT 则很活跃，两者要分开判断。',
-                en: 'Look at recent transfer activity. AiLGNS had 0 of its latest 50 transfers within 24 hours, so real usage is minimal; HPNFT is active, so judge them separately.',
-              },
-            },
-            {
-              t: { zh: '销毁是真的吗？能归因吗？', en: 'Is the burn real, and can it be attributed?' },
-              d: {
-                zh: 'LGNS 死地址余额可以查，但里面包含所有转入的销毁，不能全部算成 HELIX 的贡献。没有公开的销毁明细，就无法证明“销毁多少换多少权益”。',
-                en: 'The LGNS dead-address balance is readable, but it includes every burn ever sent there and cannot be fully credited to HELIX. Without a public burn ledger, the burn-to-benefit ratio cannot be proven.',
-              },
-            },
-          ].map((x, i) => (
-            <div key={i} className="flex gap-3 px-5 py-4">
-              <span className="num mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-canvas text-[11px] font-semibold text-muted">
-                {i + 1}
-              </span>
-              <div>
-                <div className="text-[13px] font-semibold text-ink">{pick(x.t)}</div>
-                <p className="mt-1 text-[12px] leading-relaxed text-muted">{pick(x.d)}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-        <p className="mt-3 rounded-xl border border-line bg-white px-5 py-3 text-[11px] leading-relaxed text-muted">
-          {pick({
-            zh: '这四个问题不是让你去否定项目，而是让你把“听说”换成“我能自己核对”。核不清的部分，本站一律标为不可读，也不会替你补一个看起来合理的数字。',
-            en: 'These questions are not meant to dismiss the project — they turn “I heard” into “I can check it myself”. Anything unverifiable is labelled unreadable here, and no plausible-looking number is invented to fill the gap.',
-          })}
-        </p>
-      </section>
-
-      <section className="mt-10">
-        <SectionHeader
-          title="AiLGNS"
-          desc={pick({
-            zh: '公开资料描述：一站式 AI 服务门户，调用不同 AI 模型（文案、绘图、规划、Agent），支持链上资产付费结算，把 AI 算力消耗与链上资产结算打通。',
-            en: 'Public materials describe a one-stop AI service portal: call different AI models (copywriting, image, planning, agents) and pay with on-chain assets, connecting AI compute consumption with on-chain settlement.',
-          })}
-        />
-        <TokenCard
-          token={d?.ailgns}
-          title="Helix AiLGNS"
-          color="#7C5CE6"
-          desc={pick({
-            zh: '链上同名合约。创建者地址持有 99.98% 供应，实际流通约 4,694 枚；最近 50 笔转账中 0 笔发生在 24 小时内。',
-            en: 'Same-name on-chain contract. The creator holds 99.98% of supply, leaving about 4,694 tokens in circulation; 0 of the latest 50 transfers occurred within 24 hours.',
-          })}
-          supplyLabel={pick({ zh: '代币总量', en: 'Total supply' })}
-        />
-        {d?.ailgns && (
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-muted">
-            <span className="mono">{d.ailgns.address}</span>
-            <CopyButton value={d.ailgns.address} />
-            <ExternalLink href={`${EXPLORER}/token/${d.ailgns.address}`}>{pick({ zh: '查看合约', en: 'View contract' })}</ExternalLink>
-            <span>
-              {pick({ zh: '创建者', en: 'Creator' })}：<span className="mono">{shortAddr(d.ailgns.topHolder, 6, 4)}</span>
-            </span>
-          </div>
-        )}
-      </section>
-
-      <section className="mt-10">
-        <SectionHeader
-          title="HELIX"
-          desc={pick({
-            zh: '官方公告规则：Anubis 链上的 LGNS 销毁算力协议。7 天一个纪元，单钱包每纪元 1 次，单次上限 500 LGNS；销毁 1 LGNS = 2 DAI 算力；每日销毁额度 100,000–200,000 LGNS；参与资格为 20,000 LGNS 的 360 天长期质押/债券仓位。',
-            en: 'Official announcement rules: an LGNS burn-hashpower protocol on Anubis. 7-day epoch, one burn per wallet per epoch, max 500 LGNS per burn; 1 LGNS burned = 2 DAI hashpower; daily quota 100,000–200,000 LGNS; eligibility requires 20,000 LGNS in a 360-day stake/bond position.',
-          })}
-        />
-        <div className="grid gap-3 lg:grid-cols-2">
-          <TokenCard
-            token={d?.hpnft}
-            title="AWAKE HELIX Production NFT"
-            color="#15803D"
-            desc={pick({
-              zh: '链上最活跃的 HELIX 同名 NFT。3,962 枚总量、3,506 个持有地址；最近 50 笔转账全部发生在 24 小时内。',
-              en: 'The most active same-name HELIX NFT on-chain. 3,962 total supply, 3,506 holders; all of the latest 50 transfers occurred within 24 hours.',
-            })}
-            supplyLabel={pick({ zh: 'NFT 总量', en: 'NFT supply' })}
-          />
-          <TokenCard
-            token={d?.helixPower}
-            title="HelixPower"
-            color="#B45309"
-            desc={pick({
-              zh: '链上同名算力代币。创建者地址持有 90.40%，另有 404.7 枚在 RocketSwap LP；最近 50 笔中 5 笔发生在 24 小时内。',
-              en: 'Same-name hashpower token. The creator holds 90.40%, with another 404.7 in a RocketSwap LP; 5 of the latest 50 transfers occurred within 24 hours.',
-            })}
-            supplyLabel={pick({ zh: '代币总量', en: 'Total supply' })}
-          />
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-muted">
-          {d?.hpnft && (
-            <>
-              <span className="mono">HPNFT {shortAddr(d.hpnft.address, 6, 4)}</span>
-              <ExternalLink href={`${EXPLORER}/token/${d.hpnft.address}`}>{pick({ zh: '查看 NFT', en: 'View NFT' })}</ExternalLink>
-            </>
-          )}
-          {d?.helixPower && (
-            <>
-              <span className="mono">HP {shortAddr(d.helixPower.address, 6, 4)}</span>
-              <ExternalLink href={`${EXPLORER}/token/${d.helixPower.address}`}>{pick({ zh: '查看代币', en: 'View token' })}</ExternalLink>
-            </>
-          )}
-        </div>
-      </section>
-
-      <section className="mt-8">
-        <div className="grid gap-3 sm:grid-cols-3">
           <div className="card card-pad">
             <div className="label">{pick({ zh: 'LGNS 死地址余额', en: 'LGNS at dead address' })}</div>
-            <div className="num mt-1 text-[22px] font-semibold text-ink">
-              {d ? `${fmtNum(d.lgnsBurn.dead / 1e6, lang, 2)}M` : '…'}
-            </div>
-            <div className="mt-1 text-[11px] text-muted">
-              {d ? `${fmtPct(d.lgnsBurn.pct / 100, lang, 3)} of supply` : ''}
-            </div>
+            <div className="num mt-2 text-[21px] font-semibold">{fmtToken(data.lgnsDeadBalance, lang, 'LGNS')}</div>
+            <div className="mt-1 text-[9px] text-muted">{pick({ zh: '不能全部归因于 HELIX', en: 'Not all attributable to HELIX' })}</div>
           </div>
-          <div className="card card-pad">
-            <div className="label">{pick({ zh: 'AiLGNS 头部集中度', en: 'AiLGNS top holder' })}</div>
-            <div className="num mt-1 text-[22px] font-semibold text-danger">
-              {d ? fmtPct(d.ailgns.topHolderShare / 100, lang, 2) : '…'}
-            </div>
-            <div className="mt-1 text-[11px] text-muted">{pick({ zh: '创建者地址', en: 'Creator address' })}</div>
-          </div>
-          <div className="card card-pad">
-            <div className="label">{pick({ zh: 'HelixPower 头部集中度', en: 'HelixPower top holder' })}</div>
-            <div className="num mt-1 text-[22px] font-semibold text-danger">
-              {d ? fmtPct(d.helixPower.topHolderShare / 100, lang, 2) : '…'}
-            </div>
-            <div className="mt-1 text-[11px] text-muted">{pick({ zh: '创建者地址', en: 'Creator address' })}</div>
-          </div>
-        </div>
-        <div className="mt-3 flex items-start gap-2 rounded-xl border border-line bg-white px-5 py-4 text-[11px] leading-relaxed text-muted">
-          <IconInfo size={14} className="mt-0.5 shrink-0 text-warn" />
-          {pick({
-            zh: 'LGNS 死地址余额包含所有转入 0x…dEaD 的销毁，不能全部归因于 HELIX。AiLGNS 与 HelixPower 的头部占比来自各自 holder 列表；HPNFT 的头部占比按 NFT 枚数计算。',
-            en: 'The LGNS dead-address balance includes all burns sent to 0x…dEaD and cannot be fully attributed to HELIX. Top-holder shares come from each token’s holder list; HPNFT’s share is based on NFT count.',
-          })}
         </div>
       </section>
 
-      <section className="mt-8">
-        <SectionHeader title={pick({ zh: '对比', en: 'Comparison' })} />
+      <section className="mt-9">
+        <SectionHeader
+          title={pick({ zh: '今日额度', en: 'Current day quotas' })}
+          desc={pick({ zh: '额度由合约返回；进度为“上限减剩余”。', en: 'Quotas come from the contracts; progress is cap minus remaining.' })}
+        />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <QuotaCard
+            title={pick({ zh: 'DAI 入金额度', en: 'DAI deposit quota' })}
+            cap={data.quotas.daiDepositCap}
+            remaining={data.quotas.daiDepositRemaining}
+            unit="DAI"
+            expected={pick({ zh: '反映当前合约可接受的 DAI 入金上限。', en: 'The current DAI deposit ceiling readable from the contract.' })}
+          />
+          <QuotaCard
+            title={pick({ zh: 'DAI 产品算力', en: 'DAI product Power' })}
+            cap={data.quotas.daiPowerCap}
+            remaining={data.quotas.daiPowerRemaining}
+            unit="Power"
+            expected={pick({ zh: '每日 DAI 路径对应的 Power 预算。', en: 'Daily Power budget associated with the DAI path.' })}
+          />
+          <QuotaCard
+            title={pick({ zh: 'LGNS 销毁算力', en: 'LGNS burn Power' })}
+            cap={data.quotas.lgnsBurnPowerCap}
+            remaining={data.quotas.lgnsBurnPowerRemaining}
+            unit="Power"
+            expected={pick({ zh: '链上合约当前的每日预算与剩余值。', en: 'The contract’s current daily budget and remaining amount.' })}
+          />
+          <QuotaCard
+            title={pick({ zh: 'AiLGNS 销毁算力', en: 'AiLGNS burn Power' })}
+            cap={data.quotas.aiBurnPowerCap}
+            remaining={data.quotas.aiBurnPowerRemaining}
+            unit="Power"
+            expected={pick({ zh: 'AiLGNS 销毁路径的每日 Power 预算。', en: 'Daily Power budget for the AiLGNS burn path.' })}
+          />
+          <div className="card card-pad">
+            <div className="label">AiLGNS / DAI</div>
+            <div className="num mt-2 text-[21px] font-semibold">{fmtPrice(aiDai?.priceDaiPerAi, lang)}</div>
+            <div className="mt-1 text-[9px] text-muted">{pick({ zh: '由主池储备反推', en: 'Derived from primary pool reserves' })}</div>
+          </div>
+          <div className="card card-pad">
+            <div className="label">{pick({ zh: '协议注册状态', en: 'Registry state' })}</div>
+            <div className="mt-2 flex flex-col items-start gap-1.5">
+              <Pill tone={data.aiToken?.verified ? 'ok' : 'warn'}>
+                {data.aiToken?.verified ? pick({ zh: '浏览器已开源', en: 'Verified in explorer' }) : pick({ zh: '浏览器未开源', en: 'Unverified in explorer' })}
+              </Pill>
+              {data.aiToken?.proxyType && <span className="text-[9.5px] text-muted">{data.aiToken.proxyType} proxy</span>}
+            </div>
+            <a href={DAPP_REGISTRY_URL} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-1 text-[10px] text-accent hover:underline">
+              {pick({ zh: '查看官方 DApp 合约目录', en: 'Open official DApp registry' })} <Icon name="external" size={11} />
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-9">
+        <SectionHeader title={pick({ zh: '官方 DApp 合约目录', en: 'Official DApp contract registry' })} desc={pick({ zh: '地址来自官方入口；数据从链上重新读取，验证状态以浏览器为准。', en: 'Addresses come from the official entry point; data is re-read on-chain and verification follows the explorer.' })} />
         <div className="card overflow-hidden">
           <div className="table-wrap">
-            <table className="data">
+            <table className="data-table">
               <thead>
                 <tr>
-                  <th>{pick({ zh: '项目', en: 'Item' })}</th>
-                  <th>AiLGNS</th>
-                  <th>HELIX</th>
+                  <th>{pick({ zh: '角色', en: 'Role' })}</th>
+                  <th>{pick({ zh: '地址', en: 'Address' })}</th>
+                  <th>{pick({ zh: '开源状态', en: 'Verification' })}</th>
+                  <th>{pick({ zh: '浏览器', en: 'Explorer' })}</th>
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td className="font-medium text-ink">{pick({ zh: '链', en: 'Chain' })}</td>
-                  <td>Anubis</td>
-                  <td>Anubis</td>
-                </tr>
-                <tr>
-                  <td className="font-medium text-ink">{pick({ zh: '与 LGNS 的关系', en: 'Relation to LGNS' })}</td>
-                  <td className="text-[12px] leading-relaxed">
-                    {pick({ zh: '并列的另一个代币，不是 LGNS 的升级版', en: 'A separate token, not an LGNS upgrade' })}
-                  </td>
-                  <td className="text-[12px] leading-relaxed">
-                    {pick({ zh: 'LGNS 的使用场景：销毁 LGNS 换算法力', en: 'An LGNS use case: burn LGNS for hashpower' })}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="font-medium text-ink">{pick({ zh: '合约', en: 'Contract' })}</td>
-                  <td className="mono text-[11px]">{d ? shortAddr(d.ailgns.address, 8, 6) : '…'}</td>
-                  <td className="mono text-[11px]">
-                    {d ? `HPNFT ${shortAddr(d.hpnft.address, 6, 4)}` : '…'}
-                    <br />
-                    {d ? `HP ${shortAddr(d.helixPower.address, 6, 4)}` : ''}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="font-medium text-ink">{pick({ zh: '供应 / 持有', en: 'Supply / holders' })}</td>
-                  <td>{d ? `${fmtInt(d.ailgns.supply, lang)} / ${fmtInt(d.ailgns.holders, lang)}` : '…'}</td>
-                  <td>
-                    {d
-                      ? `${fmtInt(d.hpnft.supply, lang)} NFT / ${fmtInt(d.helixPower.supply, lang)} HP`
-                      : '…'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="font-medium text-ink">{pick({ zh: '头部集中度', en: 'Top holder' })}</td>
-                  <td className="text-danger">{d ? fmtPct(d.ailgns.topHolderShare / 100, lang, 2) : '…'}</td>
-                  <td className="text-danger">
-                    {d ? `${fmtPct(d.hpnft.topHolderShare / 100, lang, 2)} NFT / ${fmtPct(d.helixPower.topHolderShare / 100, lang, 2)} HP` : '…'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="font-medium text-ink">{pick({ zh: '最近 50 笔中 24h', en: 'In 24h of latest 50' })}</td>
-                  <td>{d ? `${d.ailgns.in24h} / ${d.ailgns.sample}` : '…'}</td>
-                  <td>{d ? `${d.hpnft.in24h} / ${d.hpnft.sample} · ${d.helixPower.in24h} / ${d.helixPower.sample}` : '…'}</td>
-                </tr>
-                <tr>
-                  <td className="font-medium text-ink">{pick({ zh: '开源', en: 'Verified' })}</td>
-                  <td>{d?.ailgns.verified ? pick({ zh: '是', en: 'Yes' }) : pick({ zh: '否', en: 'No' })}</td>
-                  <td>{d?.hpnft.verified || d?.helixPower.verified ? pick({ zh: '部分', en: 'Partial' }) : pick({ zh: '否', en: 'No' })}</td>
-                </tr>
+                {helixContracts.map((contract) => (
+                  <tr key={contract.key}>
+                    <td>
+                      <div className="text-[11px] font-medium text-ink">{pick(contract.label)}</div>
+                    </td>
+                    <td><Address value={contract.address} href={contract.explorerUrl} head={8} tail={6} /></td>
+                    <td>
+                      <Pill tone={contract.verified ? 'ok' : contract.verified === false ? 'warn' : 'neutral'}>
+                        {contract.verified === null
+                          ? pick({ zh: '未知', en: 'Unknown' })
+                          : contract.verified
+                            ? pick({ zh: '已开源', en: 'Verified' })
+                            : pick({ zh: '未开源', en: 'Unverified' })}
+                      </Pill>
+                    </td>
+                    <td><a href={contract.explorerUrl} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">{pick({ zh: '打开', en: 'Open' })}</a></td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         </div>
       </section>
 
-      <div className="mt-8 flex flex-col gap-3 rounded-xl border border-line bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-2 text-[12px] leading-relaxed text-muted">
-          <span className="mt-0.5 text-warn">
-            <IconInfo size={15} />
-          </span>
-          {pick({
-            zh: 'AiLGNS / HELIX 的官方合约、算力产出与权益分配参数没有公开可读接口。本页只展示能链上核对的供应、持有、转账与销毁地址余额。',
-            en: 'Official contracts, hashpower output and benefit allocation parameters for AiLGNS / HELIX have no public readable interface. This page only shows supply, holders, transfers and burn-address balances that can be verified on-chain.',
-          })}
+      <section className="mt-9">
+        <SectionHeader title={pick({ zh: '参与前核对', en: 'Before participating' })} desc={pick({ zh: '这些是核对顺序，不是买卖建议。', en: 'This is a verification sequence, not trading advice.' })} />
+        <div className="card divide-y divide-line">
+          {[
+            { title: { zh: '合约地址是否来自官方目录？', en: 'Does the address come from the official registry?' }, body: { zh: '名称和图标不构成身份证明。把地址与官方目录、浏览器实现地址一起核对。', en: 'Names and icons are not proof of identity. Compare the address with the registry and explorer implementation.' } },
+            { title: { zh: '谁能升级合约？', en: 'Who can upgrade the contract?' }, body: { zh: '代理合约的实现地址、管理员和验证状态决定你能否独立核对规则。', en: 'The implementation, admin and verification state determine whether you can independently verify rules.' } },
+            { title: { zh: '收益来自哪里？', en: 'Where does yield come from?' }, body: { zh: '查看 AiLGNS 排放、额度消耗、销毁和池子价格，而不是只比较一个年化数字。', en: 'Inspect AiLGNS emission, quota consumption, burns and pool prices instead of comparing one APY number.' } },
+            { title: { zh: '退出时会发生什么？', en: 'What happens when you exit?' }, body: { zh: '核对 Power/SFT 仓位、额度、领取条件、税和滑点，并检查当前池深。', en: 'Check Power/NFT positions, quotas, claim conditions, tax and slippage, and inspect current pool depth.' } },
+          ].map((item, index) => (
+            <div key={item.title.en} className="flex gap-3 px-5 py-4">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accentsoft text-[10px] font-semibold text-accent">{index + 1}</span>
+              <div>
+                <div className="text-[12px] font-semibold">{pick(item.title)}</div>
+                <p className="mt-1 text-[10.5px] leading-relaxed text-muted">{pick(item.body)}</p>
+              </div>
+            </div>
+          ))}
         </div>
-        <a href={`/${lang}/chain`} className="btn btn-ghost btn-sm shrink-0">
-          {pick({ zh: '链上数据', en: 'On-chain data' })} <IconArrow size={13} />
-        </a>
-      </div>
+      </section>
     </div>
   )
 }

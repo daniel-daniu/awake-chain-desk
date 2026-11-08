@@ -1,139 +1,105 @@
 import { useQuery } from '@tanstack/react-query'
-import { fetchFlowDirect, fetchNewsDirect, fetchPriceDirect, fetchStatsDirect, fetchTokenDirect } from './direct'
-import type { EcosystemData, NewsItem, PriceData, StakingFlow, StatsData, TokenData, YieldData } from '../types'
+import type {
+  ApiEnvelope,
+  CoreData,
+  EcosystemData,
+  HomeData,
+  NewsData,
+  PortfolioData,
+  ProductsData,
+} from '../types'
 
-export interface Loaded<T> {
-  data: T
-  ts: string
-  stale: boolean
-  origin: 'api' | 'direct' | 'snapshot'
-}
+export class ApiError extends Error {
+  status: number
+  code: string
 
-interface EnvelopeLike<T> {
-  ok?: boolean
-  data?: T
-  ts?: string
-  stale?: boolean
-}
-
-async function fetchJson<T>(url: string, timeout = 6000): Promise<EnvelopeLike<T>> {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), timeout)
-  try {
-    const res = await fetch(url, { signal: ctrl.signal, headers: { accept: 'application/json' } })
-    if (!res.ok) throw new Error(`${res.status}`)
-    const ct = res.headers.get('content-type') || ''
-    if (!ct.includes('json')) throw new Error('not json')
-    return (await res.json()) as EnvelopeLike<T>
-  } finally {
-    clearTimeout(timer)
+  constructor(message: string, status = 0, code = 'API_ERROR') {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
   }
 }
 
-async function load<T>(
-  apiPath: string,
-  fallbackPath: string,
-  direct: () => Promise<T>,
-): Promise<Loaded<T>> {
+async function request<T>(path: string, timeout = 30_000): Promise<ApiEnvelope<T>> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeout)
   try {
-    const json = await fetchJson<T>(`/api${apiPath}`)
-    if (json && json.data !== undefined && json.ok !== false) {
-      return {
-        data: json.data,
-        ts: json.ts || new Date().toISOString(),
-        stale: Boolean(json.stale),
-        origin: 'api',
-      }
+    const response = await fetch(`/api${path}`, {
+      signal: controller.signal,
+      headers: { accept: 'application/json' },
+    })
+    const payload = (await response.json().catch(() => null)) as ApiEnvelope<T> | null
+    if (!response.ok || !payload?.ok) {
+      throw new ApiError(
+        payload?.error || `HTTP ${response.status}`,
+        response.status,
+        payload?.error || 'REQUEST_FAILED',
+      )
     }
-  } catch {
-    // fall through to direct
-  }
-
-  try {
-    const data = await direct()
-    return { data, ts: new Date().toISOString(), stale: false, origin: 'direct' }
-  } catch (e) {
-    console.warn('[data] direct failed for', apiPath, e)
-  }
-
-  const json = await fetchJson<T>(fallbackPath, 8000)
-  if (!json.data) throw new Error('no fallback data')
-  console.warn('[data] using bundled snapshot for', apiPath)
-  return {
-    data: json.data,
-    ts: json.ts || new Date().toISOString(),
-    stale: true,
-    origin: 'snapshot',
-  }
-}
-
-async function fetchApi<T>(path: string, timeout = 20_000): Promise<T> {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), timeout)
-  try {
-    const res = await fetch(`/api${path}`, { headers: { accept: 'application/json' }, signal: ctrl.signal })
-    const json = await res.json()
-    if (!json?.data) throw new Error(`${path} unavailable`)
-    return json.data as T
+    return payload
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new ApiError('Request timed out', 0, 'TIMEOUT')
+    }
+    throw new ApiError(error instanceof Error ? error.message : 'Network error')
   } finally {
     clearTimeout(timer)
   }
 }
 
-export const usePrice = () =>
+export const useHome = () =>
   useQuery({
-    queryKey: ['price'],
-    queryFn: () => load<PriceData>('/price', '/fallback/price.json', fetchPriceDirect),
-    refetchInterval: 120_000,
-    staleTime: 100_000,
+    queryKey: ['home'],
+    queryFn: () => request<HomeData>('/home'),
+    refetchInterval: 10 * 60_000,
+    staleTime: 8 * 60_000,
+    retry: 1,
   })
 
-export const useToken = () =>
+export const useChains = () =>
   useQuery({
-    queryKey: ['token'],
-    queryFn: () => load<TokenData>('/token', '/fallback/token.json', () => fetchTokenDirect(0)),
-    refetchInterval: 600_000,
-    staleTime: 480_000,
+    queryKey: ['chains'],
+    queryFn: () => request<CoreData>('/chains'),
+    refetchInterval: 15 * 60_000,
+    staleTime: 12 * 60_000,
+    retry: 1,
   })
 
-export const useStats = () =>
+export const useProducts = () =>
   useQuery({
-    queryKey: ['stats'],
-    queryFn: () => load<StatsData>('/stats', '/fallback/stats.json', fetchStatsDirect),
-    refetchInterval: 300_000,
-    staleTime: 240_000,
+    queryKey: ['products'],
+    queryFn: () => request<ProductsData>('/products'),
+    refetchInterval: 30 * 60_000,
+    staleTime: 24 * 60_000,
+    retry: 1,
   })
 
 export const useEcosystem = () =>
   useQuery({
     queryKey: ['ecosystem'],
-    queryFn: () => fetchApi<EcosystemData>('/ecosystem'),
-    refetchInterval: 600_000,
-    staleTime: 480_000,
+    queryFn: () => request<EcosystemData>('/ecosystem'),
+    refetchInterval: 10 * 60_000,
+    staleTime: 8 * 60_000,
     retry: 1,
-  })
-
-export const useYield = () =>
-  useQuery({
-    queryKey: ['yield'],
-    queryFn: () => fetchApi<YieldData>('/yield'),
-    refetchInterval: 600_000,
-    staleTime: 480_000,
-    retry: 1,
-  })
-
-export const useFlow = () =>
-  useQuery({
-    queryKey: ['flow'],
-    queryFn: () => load<StakingFlow>('/flow', '/fallback/flow.json', fetchFlowDirect),
-    refetchInterval: 600_000,
-    staleTime: 480_000,
   })
 
 export const useNews = () =>
   useQuery({
     queryKey: ['news'],
-    queryFn: () => load<{ items: NewsItem[] }>('/news', '/fallback/news.json', fetchNewsDirect),
-    refetchInterval: 1_800_000,
-    staleTime: 1_200_000,
+    queryFn: () => request<NewsData>('/news?scope=latest', 60_000),
+    refetchInterval: 15 * 60_000,
+    staleTime: 10 * 60_000,
+    retry: 1,
+  })
+
+export const usePortfolio = (address: string | null) =>
+  useQuery({
+    queryKey: ['portfolio', address?.toLowerCase()],
+    queryFn: () => request<PortfolioData>(`/portfolio?address=${encodeURIComponent(address!)}`, 20_000),
+    enabled: Boolean(address),
+    refetchInterval: 90_000,
+    staleTime: 60_000,
+    retry: 1,
   })

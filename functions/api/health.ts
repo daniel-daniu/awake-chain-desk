@@ -1,39 +1,30 @@
-import { json } from '../_lib/utils'
-
-const checks = [
-  { name: 'anubis-blockscout', url: 'https://browser.anubispace.org/api/v2/stats' },
-  { name: 'anubis-rpc', url: 'https://rpc.anubispace.org' },
-  { name: 'polygon-rpc', url: 'https://polygon-bor-rpc.publicnode.com' },
-]
+import { CHAINS } from '../../shared/contracts'
+import { fetchJson, rpcBatch } from '../_lib/utils'
 
 export const onRequestGet = async () => {
-  const results = await Promise.allSettled(
-    checks.map(async (c) => {
-      const started = Date.now()
-      const res =
-        c.name === 'anubis-rpc'
-          ? await fetch(c.url, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }),
-            })
-          : c.name === 'polygon-rpc'
-            ? await fetch(c.url, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }),
-              })
-            : await fetch(c.url)
-      return { name: c.name, ok: res.ok, status: res.status, ms: Date.now() - started }
+  const checks = await Promise.all([
+    rpcBatch(CHAINS.anubis.rpc, [{ method: 'eth_chainId', params: [] }], 8_000)
+      .then((result) => ({ name: 'anubis-rpc', ok: result[0] === CHAINS.anubis.hexId }))
+      .catch(() => ({ name: 'anubis-rpc', ok: false })),
+    rpcBatch(CHAINS.polygon.rpc, [{ method: 'eth_chainId', params: [] }], 8_000)
+      .then((result) => ({ name: 'polygon-rpc', ok: result[0] === CHAINS.polygon.hexId }))
+      .catch(() => ({ name: 'polygon-rpc', ok: false })),
+    fetchJson<Record<string, unknown>>(`${CHAINS.anubis.explorerApi}/stats`, 8_000)
+      .then(() => ({ name: 'anubis-explorer', ok: true }))
+      .catch(() => ({ name: 'anubis-explorer', ok: false })),
+  ])
+  return new Response(
+    JSON.stringify({
+      ok: checks.every((check) => check.ok),
+      checks,
+      retrievedAt: new Date().toISOString(),
     }),
-  )
-
-  return json(
     {
-      ok: results.every((r) => r.status === 'fulfilled' && r.value.ok),
-      checks: results.map((r) => (r.status === 'fulfilled' ? r.value : { ok: false, status: 0 })),
-      ts: new Date().toISOString(),
+      status: checks.every((check) => check.ok) ? 200 : 503,
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+      },
     },
-    { ttl: 30, swr: 60 },
   )
 }
