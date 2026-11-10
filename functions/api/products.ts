@@ -14,6 +14,7 @@ export const onRequestGet = async (context: any) => {
           ttl: 900,
           swr: 1800,
           warnings: data.core.warnings,
+          cacheable: data.core.warnings.length === 0,
           sources: [
             {
               id: 'onchain',

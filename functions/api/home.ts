@@ -26,9 +26,9 @@ export const onRequestGet = async (context: any) => {
           },
           {
             id: 'polygon-rpc',
-            name: 'Polygon RPC',
+            name: 'Polygon RPC pool',
             kind: 'rpc',
-            url: 'https://polygon.drpc.org',
+            url: 'https://polygon.gateway.tenderly.co',
             status: core.quotes.some((quote) => quote.chain === 'polygon') ? 'ok' : 'error',
             retrievedAt: core.observedAt,
             blockNumber: core.quotes.find((quote) => quote.chain === 'polygon')?.blockNumber,
@@ -43,7 +43,13 @@ export const onRequestGet = async (context: any) => {
           },
         ]
         const data: HomeData = { ...core, warnings }
-        return json(data, { ttl: 300, swr: 1800, sources, warnings })
+        return json(data, {
+          ttl: 300,
+          swr: 1800,
+          sources,
+          warnings,
+          cacheable: warnings.length === 0,
+        })
       } catch (error) {
         return fail('HOME_UPSTREAM', 503, error instanceof Error ? error.message : 'Unknown error')
       }

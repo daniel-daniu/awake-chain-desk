@@ -128,7 +128,10 @@ export default function Home() {
 
       <PageIntro
         eyebrow={pick({ zh: 'AWake 双链观测', en: 'AWAKE DUAL-CHAIN MONITOR' })}
-        title={pick({ zh: '先看真实数据，再决定是否参与。', en: 'See the real on-chain state before you decide.' })}
+        title={pick({
+          zh: '一个纯数据看板，直接读链上合约与索引。',
+          en: 'A pure data dashboard, reading directly from on-chain contracts and indexes.',
+        })}
         desc={pick({
           zh: '价格、税费、收益、奖励和链上活动都直接读取合约与索引。新闻只作为外部来源，不与链上事实混写。',
           en: 'Prices, taxes, yield, rewards and activity are read from contracts and chain indexes. News is kept as an external source, separate from on-chain facts.',

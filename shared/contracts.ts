@@ -36,9 +36,11 @@ export const CHAINS: Record<ChainKey, ChainConfig> = {
     name: 'Polygon',
     shortName: 'Polygon',
     rpc: [
+      'https://polygon.gateway.tenderly.co',
+      'https://polygon-bor-rpc.blockreq.com/v1/rpc/public',
+      'https://rpc-mainnet.matic.quiknode.pro',
       'https://polygon-bor-rpc.publicnode.com',
       'https://polygon.drpc.org',
-      'https://1rpc.io/matic',
     ],
     explorer: 'https://polygonscan.com',
     native: { name: 'POL', symbol: 'POL', decimals: 18 },

@@ -56,6 +56,8 @@ npx wrangler pages deploy dist --project-name awake-chain-desk
 
 上游失败时接口会尽量返回最近成功边缘缓存并标出过期；没有缓存时返回错误，不使用固定数据冒充实时数据。
 
+Polygon 公共 RPC 偶发限流时，数据层会在多个公共节点间自动切换并拆分重试。若长期全部不可用，建议在后续版本接入 Cloudflare Secret 中的付费或自建 Polygon RPC。
+
 ## 验收
 
 ```bash

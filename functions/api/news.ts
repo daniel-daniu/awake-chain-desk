@@ -12,6 +12,7 @@ export const onRequestGet = async (context: any) => {
         return json(data, {
           ttl: 300,
           swr: 900,
+          cacheable: data.items.length > 0,
           warnings: data.sourceState
             .filter((source) => source.status === 'error')
             .map((source) =>

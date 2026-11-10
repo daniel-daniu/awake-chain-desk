@@ -13,6 +13,7 @@ export const onRequestGet = async (context: any) => {
           ttl: 300,
           swr: 900,
           warnings: data.warnings,
+          cacheable: data.warnings.length === 0,
           sources: [
             {
               id: 'helix-rpc',

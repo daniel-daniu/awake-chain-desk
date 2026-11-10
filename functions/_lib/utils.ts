@@ -7,6 +7,7 @@ export interface EnvelopeOptions {
   sources?: SourceInfo[]
   warnings?: ApiWarning[]
   private?: boolean
+  cacheable?: boolean
 }
 
 export function json<T>(data: T, options: EnvelopeOptions = {}) {
@@ -17,6 +18,7 @@ export function json<T>(data: T, options: EnvelopeOptions = {}) {
     sources = [],
     warnings = [],
     private: privateResponse = false,
+    cacheable = true,
   } = options
   return new Response(
     JSON.stringify({
@@ -30,9 +32,10 @@ export function json<T>(data: T, options: EnvelopeOptions = {}) {
     {
       headers: {
         'content-type': 'application/json; charset=utf-8',
-        'cache-control': privateResponse
+        'cache-control': privateResponse || !cacheable
           ? 'private, no-store'
           : `public, s-maxage=${ttl}, stale-while-revalidate=${swr}`,
+        'x-awake-cacheable': cacheable ? '1' : '0',
       },
     },
   )
@@ -82,6 +85,7 @@ export async function cached(
     const task = (async () => {
       const response = await fn()
       if (!response.ok) return response
+      if (response.headers.get('x-awake-cacheable') === '0') return response
       const body = await response.clone().text()
       const headers = new Headers(response.headers)
       headers.set('cache-control', `public, s-maxage=${ttl + swr}`)
@@ -113,7 +117,18 @@ export async function cached(
     }
 
     try {
-      return await refresh()
+      const refreshed = await refresh()
+      if (
+        refreshed.headers.get('x-awake-cacheable') === '0' &&
+        storedAt &&
+        Date.now() - storedAt < 6 * 60 * 60 * 1000
+      ) {
+        const headers = new Headers(hit.headers)
+        headers.set('x-awake-stale', '1')
+        headers.set('cache-control', 'private, no-store')
+        return new Response(await hit.text(), { status: hit.status, headers })
+      }
+      return refreshed
     } catch {
       if (storedAt && Date.now() - storedAt < 6 * 60 * 60 * 1000) {
         const headers = new Headers(hit.headers)
@@ -222,10 +237,21 @@ export async function rpcBatch(
 ): Promise<Array<any>> {
   if (!calls.length) return []
   let lastError: unknown
+  let bestPartial: Array<any> | null = null
+  let bestScore = -1
+  const uniqueUrls = [...new Set(urls.filter((url) => !url.includes('${')))]
+  const startIndex = Math.floor(Math.random() * Math.max(1, uniqueUrls.length))
+  const orderedUrls = [
+    ...uniqueUrls.slice(startIndex),
+    ...uniqueUrls.slice(0, startIndex),
+  ]
+  const deadline = Date.now() + timeout
 
-  for (const url of urls) {
+  for (const url of orderedUrls) {
+    const remaining = deadline - Date.now()
+    if (remaining < 1_000) break
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeout)
+    const timer = setTimeout(() => controller.abort(), Math.min(remaining, 7_000))
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -245,7 +271,12 @@ export async function rpcBatch(
       if (!Array.isArray(payload)) throw new Error('RPC response is not a batch')
       const byId = new Map(payload.map((item) => [item.id, item]))
       const values = calls.map((_, index) => byId.get(index + 1)?.result ?? null)
-      if (values.some((value) => value !== null)) return values
+      const score = values.filter((value) => value !== null).length
+      if (score > bestScore) {
+        bestPartial = values
+        bestScore = score
+      }
+      if (score === calls.length) return values
       lastError = new Error('RPC returned no usable result')
     } catch (error) {
       lastError = error
@@ -253,6 +284,7 @@ export async function rpcBatch(
       clearTimeout(timer)
     }
   }
+  if (bestPartial && bestScore > 0) return bestPartial
   throw lastError instanceof Error ? lastError : new Error('All RPC endpoints failed')
 }
 
